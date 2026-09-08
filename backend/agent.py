@@ -79,6 +79,7 @@ def generate_financial_review(evidence: dict) -> str:
     Send structured, Python-calculated evidence to Google Gemini AI (or Anthropic Claude)
     and ask it to explain only what's supplied.
     """
+    groq_key = os.environ.get("GROQ_API_KEY")
     gemini_key = os.environ.get("GEMINI_API_KEY")
     anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
 
@@ -88,7 +89,39 @@ def generate_financial_review(evidence: dict) -> str:
         + json.dumps(evidence, indent=2, default=str)
     )
 
-    # 1. Google Gemini AI integration
+    # 1. Groq Cloud API integration (Ultra-fast LLM inference)
+    if groq_key:
+        try:
+            import urllib.request
+            req_data = json.dumps({
+                "model": os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
+                "messages": [
+                    {"role": "system", "content": REVIEW_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "temperature": 0.2,
+                "max_tokens": 1200
+            }).encode("utf-8")
+
+            req = urllib.request.Request(
+                "https://api.groq.com/openai/v1/chat/completions",
+                data=req_data,
+                headers={
+                    "Authorization": f"Bearer {groq_key}",
+                    "Content-Type": "application/json",
+                    "User-Agent": "Python-Urllib/3"
+                },
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=12) as res:
+                body = json.loads(res.read().decode("utf-8"))
+                text = body["choices"][0]["message"]["content"]
+                if text:
+                    return text.strip()
+        except Exception as err:
+            print(f"[agent] Groq API call failed ({err}). Falling back to Gemini/Anthropic...")
+
+    # 2. Google Gemini AI integration fallback
     if gemini_key:
         try:
             from google import genai
@@ -102,7 +135,6 @@ def generate_financial_review(evidence: dict) -> str:
             )
             gemini_model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
             models_to_try = [gemini_model, "gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"]
-            # Remove duplicates preserving order
             models_to_try = list(dict.fromkeys([m for m in models_to_try if m]))
             
             http_opts = types.HttpOptions(timeout=10000)
