@@ -129,6 +129,14 @@ def generate_financial_review(evidence: dict) -> str:
                 text = body["choices"][0]["message"]["content"]
                 if text:
                     return text.strip()
+        except urllib.error.HTTPError as http_err:
+            error_body = ""
+            try:
+                error_body = http_err.read().decode("utf-8")
+            except Exception:
+                pass
+            print(f"[agent] Groq model '{model}' HTTP {http_err.code}: {error_body}")
+            last_err = f"HTTP {http_err.code}: {error_body if error_body else http_err.reason}"
         except Exception as err:
             print(f"[agent] Groq model '{model}' failed: {err}")
             last_err = err
