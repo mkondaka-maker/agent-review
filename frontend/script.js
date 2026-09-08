@@ -1,4 +1,4 @@
-const API_BASE = ""; // Same-origin backend API
+const API_BASE = "https://agent-review-1.onrender.com"; // Render backend API
 
 // DOM Elements - Screen 1 Setup
 const screenSetup = document.getElementById("screenSetup");

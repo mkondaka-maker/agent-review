@@ -76,12 +76,10 @@ STRICT RULES:
 
 def generate_financial_review(evidence: dict) -> str:
     """
-    Send structured, Python-calculated evidence to Google Gemini AI (or Anthropic Claude)
+    Send structured, Python-calculated evidence to Groq API
     and ask it to explain only what's supplied.
     """
     groq_key = os.environ.get("GROQ_API_KEY")
-    gemini_key = os.environ.get("GEMINI_API_KEY")
-    anthropic_key = os.environ.get("ANTHROPIC_API_KEY")
 
     user_prompt = (
         "Here is the evidence calculated by Python for this financial review. "
@@ -89,88 +87,39 @@ def generate_financial_review(evidence: dict) -> str:
         + json.dumps(evidence, indent=2, default=str)
     )
 
-    # 1. Groq Cloud API integration (Ultra-fast LLM inference)
-    if groq_key:
-        try:
-            import urllib.request
-            req_data = json.dumps({
-                "model": os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
-                "messages": [
-                    {"role": "system", "content": REVIEW_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt}
-                ],
-                "temperature": 0.2,
-                "max_tokens": 1200
-            }).encode("utf-8")
+    # Groq Cloud API integration (ONLY provider used)
+    try:
+        import urllib.request
+        req_data = json.dumps({
+            "model": os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
+            "messages": [
+                {"role": "system", "content": REVIEW_SYSTEM_PROMPT},
+                {"role": "user", "content": user_prompt}
+            ],
+            "temperature": 0.2,
+            "max_tokens": 1200
+        }).encode("utf-8")
 
-            req = urllib.request.Request(
-                "https://api.groq.com/openai/v1/chat/completions",
-                data=req_data,
-                headers={
-                    "Authorization": f"Bearer {groq_key}",
-                    "Content-Type": "application/json",
-                    "User-Agent": "Python-Urllib/3"
-                },
-                method="POST"
-            )
-            with urllib.request.urlopen(req, timeout=12) as res:
-                body = json.loads(res.read().decode("utf-8"))
-                text = body["choices"][0]["message"]["content"]
-                if text:
-                    return text.strip()
-        except Exception as err:
-            print(f"[agent] Groq API call failed ({err}). Falling back to Gemini/Anthropic...")
+        req = urllib.request.Request(
+            "https://api.groq.com/openai/v1/chat/completions",
+            data=req_data,
+            headers={
+                "Authorization": f"Bearer {groq_key}",
+                "Content-Type": "application/json",
+                "User-Agent": "Python-Urllib/3"
+            },
+            method="POST"
+        )
+        with urllib.request.urlopen(req, timeout=15) as res:
+            body = json.loads(res.read().decode("utf-8"))
+            text = body["choices"][0]["message"]["content"]
+            if text:
+                return text.strip()
+    except Exception as err:
+        print(f"[agent] Groq API call failed: {err}")
+        raise RuntimeError(f"Groq API error: {err}")
 
-    # 2. Google Gemini AI integration fallback
-    if gemini_key:
-        try:
-            from google import genai
-            from google.genai import types
-
-            gemini_client = genai.Client(api_key=gemini_key)
-            config = types.GenerateContentConfig(
-                system_instruction=REVIEW_SYSTEM_PROMPT,
-                temperature=0.2,
-                max_output_tokens=1500,
-            )
-            gemini_model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
-            models_to_try = [gemini_model, "gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"]
-            models_to_try = list(dict.fromkeys([m for m in models_to_try if m]))
-            
-            http_opts = types.HttpOptions(timeout=10000)
-            for m in models_to_try:
-                try:
-                    response = gemini_client.models.generate_content(
-                        model=m,
-                        contents=user_prompt,
-                        config=config,
-                        http_options=http_opts,
-                    )
-                    if response and response.text:
-                        return response.text.strip()
-                except Exception as model_err:
-                    print(f"[agent] Gemini model '{m}' failed: {model_err}")
-        except Exception as err:
-            print(f"[agent] Gemini client initialization/call failed: {err}")
-
-    # 2. Anthropic Claude fallback integration
-    if anthropic_key:
-        try:
-            import anthropic
-            claude_client = anthropic.Anthropic(api_key=anthropic_key)
-            claude_model = os.environ.get("ANTHROPIC_MODEL", "claude-sonnet-4-6")
-            response = claude_client.messages.create(
-                model=claude_model,
-                max_tokens=1200,
-                system=REVIEW_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_prompt}],
-            )
-            text_parts = [block.text for block in response.content if getattr(block, "type", None) == "text"]
-            return "\n".join(text_parts).strip()
-        except Exception as err:
-            print(f"[agent] Anthropic API call failed ({err}).")
-
-    raise RuntimeError("AI narrative unavailable: GEMINI_API_KEY or ANTHROPIC_API_KEY is not configured or failed.")
+    raise RuntimeError("AI narrative generation failed via Groq API.")
 
 
 def generate_key_observations(evidence: dict) -> list:

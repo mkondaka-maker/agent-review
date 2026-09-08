@@ -103,15 +103,15 @@ def load_dataset(force_reload: bool = False) -> pd.DataFrame:
     df = None
     loaded_source = None
 
-    # Supabase direct connections fail from free-tier Render IPs (Network unreachable).
-    # If connection fails or times out, fallback to CSV immediately.
-    if db_url and HAS_SQLALCHEMY:
+    # Load dataset: prioritize CSV if present for instant zero-delay loading, or load DB if explicitly reachable.
+    if os.path.exists(DATA_PATH):
+        df = pd.read_csv(DATA_PATH)
+        loaded_source = "csv"
+    elif db_url and HAS_SQLALCHEMY:
         try:
             df = load_dataset_from_db(db_url)
             loaded_source = "postgresql"
-            print(f"[data_loader] Successfully loaded {len(df)} rows from PostgreSQL database.")
-        except Exception as err:
-            print(f"[data_loader] PostgreSQL load failed ({err}). Falling back to CSV...")
+        except Exception:
             df = None
 
     if df is None:
