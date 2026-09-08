@@ -103,15 +103,14 @@ def load_dataset(force_reload: bool = False) -> pd.DataFrame:
     df = None
     loaded_source = None
 
-    # Load dataset: prioritize CSV if present for instant zero-delay loading, or load DB if explicitly reachable.
-    if os.path.exists(DATA_PATH):
-        df = pd.read_csv(DATA_PATH)
-        loaded_source = "csv"
-    elif db_url and HAS_SQLALCHEMY:
+    # Prioritize PostgreSQL database (DATABASE_URL), fallback to local CSV if unavailable or connection fails
+    if db_url and HAS_SQLALCHEMY:
         try:
             df = load_dataset_from_db(db_url)
             loaded_source = "postgresql"
-        except Exception:
+            print(f"[data_loader] Successfully loaded {len(df)} rows from PostgreSQL database.")
+        except Exception as err:
+            print(f"[data_loader] PostgreSQL load failed ({err}). Falling back to CSV...")
             df = None
 
     if df is None:
@@ -129,13 +128,12 @@ def load_dataset(force_reload: bool = False) -> pd.DataFrame:
     if "Company" not in df.columns or "Year" not in df.columns:
         raise ValueError("Dataset must contain at least 'Company' and 'Year' columns.")
 
-    # Coerce Year to integer where possible.
+    # Ensure numeric columns are properly typed using loc to avoid pandas chained assignment warnings
     df["Year"] = pd.to_numeric(df["Year"], errors="coerce")
 
-    # Coerce known metric columns to numeric, leaving non-numeric values as NaN
     for col in KNOWN_METRIC_COLUMNS:
         if col in df.columns:
-            df[col] = pd.to_numeric(df[col], errors="coerce")
+            df.loc[:, col] = pd.to_numeric(df[col], errors="coerce")
 
     _cache["df"] = df
     _cache["source"] = loaded_source
