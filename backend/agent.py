@@ -95,21 +95,29 @@ def generate_financial_review(evidence: dict) -> str:
             from google.genai import types
 
             gemini_client = genai.Client(api_key=gemini_key)
-            gemini_model = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
             config = types.GenerateContentConfig(
                 system_instruction=REVIEW_SYSTEM_PROMPT,
                 temperature=0.2,
                 max_output_tokens=1500,
             )
-            response = gemini_client.models.generate_content(
-                model=gemini_model,
-                contents=user_prompt,
-                config=config,
-            )
-            if response and response.text:
-                return response.text.strip()
+            gemini_model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+            models_to_try = [gemini_model, "gemini-2.5-flash", "gemini-1.5-flash", "gemini-2.0-flash"]
+            # Remove duplicates preserving order
+            models_to_try = list(dict.fromkeys([m for m in models_to_try if m]))
+            
+            for m in models_to_try:
+                try:
+                    response = gemini_client.models.generate_content(
+                        model=m,
+                        contents=user_prompt,
+                        config=config,
+                    )
+                    if response and response.text:
+                        return response.text.strip()
+                except Exception as model_err:
+                    print(f"[agent] Gemini model '{m}' failed: {model_err}")
         except Exception as err:
-            print(f"[agent] Gemini API call failed ({err}).")
+            print(f"[agent] Gemini client initialization/call failed: {err}")
 
     # 2. Anthropic Claude fallback integration
     if anthropic_key:
