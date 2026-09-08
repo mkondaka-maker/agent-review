@@ -99,9 +99,12 @@ def load_dataset_from_db(db_url: str) -> pd.DataFrame:
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
 
-    # Default to Supabase pooler port 6543 for IPv4 compatibility on Render free tier
-    if "supabase.co:5432" in db_url:
-        db_url_pooler = db_url.replace("supabase.co:5432", "supabase.co:6543")
+    # Supabase direct port 5432 is IPv6-only on free tier, which free Render containers cannot route to.
+    # Port 6543 uses Supabase Session Pooler (IPv4 compatible).
+    if ":5432/" in db_url:
+        db_url_pooler = db_url.replace(":5432/", ":6543/")
+    elif ".supabase.co" in db_url and not ":6543" in db_url:
+        db_url_pooler = db_url.replace(".supabase.co", ".supabase.co:6543")
     else:
         db_url_pooler = db_url
 
@@ -110,7 +113,7 @@ def load_dataset_from_db(db_url: str) -> pd.DataFrame:
         with engine.connect() as conn:
             df = pd.read_sql("SELECT * FROM financial_statements", conn)
     except Exception as e:
-        print(f"[data_loader] Pooler 6543 connect failed ({e}), trying direct 5432...")
+        print(f"[data_loader] Pooler connect failed ({e}), trying original URL...")
         engine = create_engine(db_url, pool_pre_ping=True, connect_args={"connect_timeout": 10})
         with engine.connect() as conn:
             df = pd.read_sql("SELECT * FROM financial_statements", conn)
