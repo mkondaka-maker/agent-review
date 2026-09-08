@@ -73,6 +73,23 @@ DB_COLUMN_MAPPING = {
 _cache = {"df": None, "source": None}
 
 
+# Mapping Ticker Symbols (from Supabase DB) to Full Company Names
+TICKER_TO_NAME = {
+    "AAPL": "Apple",
+    "MSFT": "Microsoft",
+    "AMZN": "Amazon",
+    "GOOG": "Google",
+    "NVDA": "Nvidia",
+    "PYPL": "PayPal",
+    "MCD": "McDonald's",
+    "INTC": "Intel",
+    "SHLDQ": "Sears",
+    "BCS": "Barclays",
+    "PCG": "PG&E",
+    "AIG": "AIG",
+}
+
+
 def load_dataset_from_db(db_url: str) -> pd.DataFrame:
     """Load dataset from PostgreSQL database using SQLAlchemy."""
     if not HAS_SQLALCHEMY:
@@ -82,12 +99,17 @@ def load_dataset_from_db(db_url: str) -> pd.DataFrame:
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
 
-    engine = create_engine(db_url, pool_pre_ping=True, connect_args={"connect_timeout": 3})
+    engine = create_engine(db_url, pool_pre_ping=True, connect_args={"connect_timeout": 8})
     with engine.connect() as conn:
         df = pd.read_sql("SELECT * FROM financial_statements", conn)
 
     # Map database snake_case column names to standard project column names
     df = df.rename(columns=DB_COLUMN_MAPPING)
+
+    # Map Ticker symbols to clean company names if present
+    if "Company" in df.columns:
+        df["Company"] = df["Company"].map(lambda c: TICKER_TO_NAME.get(str(c).strip(), str(c).strip()))
+
     return df
 
 
