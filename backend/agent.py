@@ -195,42 +195,7 @@ def generate_financial_review(evidence: dict) -> str:
         except Exception as err:
             print(f"[agent] OpenAI API failed: {err}")
 
-    # 4. Standalone Rule-Based AI Review Fallback (Guaranteed to work 100% of the time, zero API dependence)
-    return generate_rule_based_review(evidence)
-
-
-def generate_rule_based_review(evidence: dict) -> str:
-    """
-    Generate an executive financial review narrative using deterministic python logic.
-    Guarantees 100% reliability with zero external network or API dependencies.
-    """
-    company = evidence.get("company", "Company")
-    year = evidence.get("year", "N/A")
-    prev_year = evidence.get("previous_year", "N/A")
-    comparison = evidence.get("comparison", {})
-
-    paragraphs = [
-        f"### Executive Financial Review: {company} ({prev_year} vs. {year})\n",
-        f"This executive narrative summarizes the financial performance of **{company}** for fiscal year **{year}** compared to **{prev_year}**, based strictly on Python-calculated evidence.\n",
-        "#### Key Performance Indicators & Trends:\n"
-    ]
-
-    for metric, data in comparison.items():
-        curr = data.get("current")
-        prev = data.get("previous")
-        pct = data.get("percent_change")
-        if curr is not None and prev is not None and pct is not None:
-            trend = "growth" if pct > 0 else "decline"
-            paragraphs.append(f"- **{metric}**: Reported at **{curr}** in {year} compared to **{prev}** in {prev_year}, representing a **{pct}%** YoY {trend}.")
-
-    variances = evidence.get("variances", [])
-    if variances:
-        paragraphs.append("\n#### Notable Financial Variances:")
-        for v in variances:
-            paragraphs.append(f"- **{v['metric']}**: Flagged with a significant **{v['direction']}** of **{v['percent_change']}%**.")
-
-    paragraphs.append("\n*Note: Review generated directly from verified financial calculation engine.*")
-    return "\n".join(paragraphs)
+    raise RuntimeError("AI narrative generation failed: Please configure a valid GROQ_API_KEY, OPENROUTER_API_KEY, or OPENAI_API_KEY.")
 
 
 def generate_key_observations(evidence: dict) -> list:

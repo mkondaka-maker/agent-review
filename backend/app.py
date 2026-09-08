@@ -64,6 +64,32 @@ def api_health():
         return jsonify({"status": "error", "error": str(e)}), 500
 
 
+@app.route("/api/db-test", methods=["GET"])
+def api_db_test():
+    """Diagnostic endpoint: test direct DB connection and return detailed status."""
+    db_url = os.environ.get("DATABASE_URL", "")
+    result = {
+        "database_url_set": bool(db_url),
+        "database_url_preview": db_url[:50] + "..." if len(db_url) > 50 else db_url,
+        "has_sqlalchemy": data_loader.HAS_SQLALCHEMY,
+    }
+    if db_url and data_loader.HAS_SQLALCHEMY:
+        try:
+            df = data_loader.load_dataset_from_db(db_url)
+            result["db_connection"] = "SUCCESS"
+            result["rows_loaded"] = len(df)
+            result["columns"] = list(df.columns)
+            if "Company" in df.columns:
+                result["companies"] = sorted(df["Company"].dropna().unique().tolist())
+        except Exception as e:
+            result["db_connection"] = "FAILED"
+            result["error"] = str(e)
+    else:
+        result["db_connection"] = "SKIPPED"
+        result["reason"] = "DATABASE_URL not set or sqlalchemy not installed"
+    return jsonify(result)
+
+
 @app.route("/api/companies", methods=["GET"])
 def api_companies():
     try:

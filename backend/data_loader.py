@@ -91,34 +91,41 @@ TICKER_TO_NAME = {
 
 
 def load_dataset_from_db(db_url: str) -> pd.DataFrame:
-    """Load dataset from PostgreSQL database using SQLAlchemy."""
+    """Load dataset from PostgreSQL / Supabase using SQLAlchemy."""
     if not HAS_SQLALCHEMY:
-        raise ImportError("sqlalchemy and psycopg2-binary are required to load from PostgreSQL database.")
+        raise ImportError("sqlalchemy and psycopg2-binary are required.")
 
-    # Fix postgres:// URL prefix for SQLAlchemy 2.0+ compatibility
+    # Normalise URL scheme for SQLAlchemy 2.0+
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
 
-    # Convert port 5432 to port 6543 (Supabase IPv4 session pooler port)
-    # Render free tier instances lack IPv6 egress required by direct port 5432
-    db_url_6543 = db_url.replace(":5432/", ":6543/").replace(":5432", ":6543")
+    # Supabase transaction pooler runs on port 6543 (IPv4-friendly).
+    # Always rewrite :5432 -> :6543 so Render free-tier can reach it.
+    if ":5432" in db_url:
+        db_url_pooler = db_url.replace(":5432/", ":6543/").replace(":5432", ":6543")
+        print(f"[data_loader] Rewriting port 5432->6543 for Supabase pooler: {db_url_pooler[:60]}...")
+    else:
+        db_url_pooler = db_url
+        print(f"[data_loader] Connecting to DB (pooler URL): {db_url_pooler[:60]}...")
 
-    try:
-        engine = create_engine(db_url_6543, pool_pre_ping=True, connect_args={"connect_timeout": 12})
-        with engine.connect() as conn:
-            df = pd.read_sql("SELECT * FROM financial_statements", conn)
-    except Exception as e:
-        print(f"[data_loader] Port 6543 connect failed ({e}), trying original URL...")
-        engine = create_engine(db_url, pool_pre_ping=True, connect_args={"connect_timeout": 10})
-        with engine.connect() as conn:
-            df = pd.read_sql("SELECT * FROM financial_statements", conn)
+    engine = create_engine(
+        db_url_pooler,
+        pool_pre_ping=True,
+        connect_args={"connect_timeout": 15},
+    )
+    with engine.connect() as conn:
+        df = pd.read_sql("SELECT * FROM financial_statements", conn)
+
+    print(f"[data_loader] DB query returned {len(df)} rows, columns: {list(df.columns)}")
 
     # Map database snake_case column names to standard project column names
     df = df.rename(columns=DB_COLUMN_MAPPING)
 
     # Map Ticker symbols to clean company names if present
     if "Company" in df.columns:
-        df["Company"] = df["Company"].map(lambda c: TICKER_TO_NAME.get(str(c).strip(), str(c).strip()))
+        df["Company"] = df["Company"].map(
+            lambda c: TICKER_TO_NAME.get(str(c).strip(), str(c).strip())
+        )
 
     return df
 
