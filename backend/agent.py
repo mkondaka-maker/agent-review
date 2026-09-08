@@ -88,38 +88,52 @@ def generate_financial_review(evidence: dict) -> str:
     )
 
     # Groq Cloud API integration (ONLY provider used)
-    try:
-        import urllib.request
-        req_data = json.dumps({
-            "model": os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
-            "messages": [
-                {"role": "system", "content": REVIEW_SYSTEM_PROMPT},
-                {"role": "user", "content": user_prompt}
-            ],
-            "temperature": 0.2,
-            "max_tokens": 1200
-        }).encode("utf-8")
+    if not groq_key:
+        raise RuntimeError("GROQ_API_KEY is not set in environment variables.")
 
-        req = urllib.request.Request(
-            "https://api.groq.com/openai/v1/chat/completions",
-            data=req_data,
-            headers={
-                "Authorization": f"Bearer {groq_key}",
-                "Content-Type": "application/json",
-                "User-Agent": "Python-Urllib/3"
-            },
-            method="POST"
-        )
-        with urllib.request.urlopen(req, timeout=15) as res:
-            body = json.loads(res.read().decode("utf-8"))
-            text = body["choices"][0]["message"]["content"]
-            if text:
-                return text.strip()
-    except Exception as err:
-        print(f"[agent] Groq API call failed: {err}")
-        raise RuntimeError(f"Groq API error: {err}")
+    import urllib.request
+    models_to_try = [
+        os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        "llama-3.3-70b-versatile",
+        "llama-3.1-8b-instant",
+        "llama3-70b-8192",
+        "mixtral-8x7b-32768",
+    ]
+    models_to_try = list(dict.fromkeys([m for m in models_to_try if m]))
+    last_err = None
 
-    raise RuntimeError("AI narrative generation failed via Groq API.")
+    for model in models_to_try:
+        try:
+            req_data = json.dumps({
+                "model": model,
+                "messages": [
+                    {"role": "system", "content": REVIEW_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "temperature": 0.2,
+                "max_tokens": 1200
+            }).encode("utf-8")
+
+            req = urllib.request.Request(
+                "https://api.groq.com/openai/v1/chat/completions",
+                data=req_data,
+                headers={
+                    "Authorization": f"Bearer {groq_key}",
+                    "Content-Type": "application/json",
+                    "User-Agent": "Mozilla/5.0"
+                },
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=15) as res:
+                body = json.loads(res.read().decode("utf-8"))
+                text = body["choices"][0]["message"]["content"]
+                if text:
+                    return text.strip()
+        except Exception as err:
+            print(f"[agent] Groq model '{model}' failed: {err}")
+            last_err = err
+
+    raise RuntimeError(f"Groq API error: {last_err}")
 
 
 def generate_key_observations(evidence: dict) -> list:
