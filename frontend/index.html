@@ -1,0 +1,256 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Financial Statement Review Agent</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Source+Serif+4:ital,wght@0,400;0,600;0,700;1,400&family=IBM+Plex+Sans:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css" />
+<script src="chart.umd.min.js"></script>
+</head>
+<body>
+
+  <!-- Screen 1: Setup -->
+  <div id="screenSetup" class="screen setup-screen">
+    <div class="setup-container">
+      <header class="setup-header">
+        <div class="brand-badge">FSR</div>
+        <h1>Financial Statement Review Agent</h1>
+        <p class="subhead">Python-calculated · Evidence-backed · AI-explained</p>
+      </header>
+
+      <main class="setup-card">
+        <div class="setup-row">
+          <div class="field">
+            <label for="companySelect">Company</label>
+            <select id="companySelect">
+              <option value="">Loading companies...</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="yearSelect">Fiscal Year</label>
+            <select id="yearSelect" disabled>
+              <option value="">Select company first</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="field field-question">
+          <label for="questionInput">Ask your financial question</label>
+          <input 
+            type="text" 
+            id="questionInput" 
+            placeholder="Give me a complete financial review."
+            value="Give me a complete financial review."
+          />
+        </div>
+
+        <div class="quick-actions">
+          <span class="quick-actions-label">Quick Actions:</span>
+          <div class="chips-group">
+            <button type="button" class="chip" data-question="Give me a complete financial review.">Complete Review</button>
+            <button type="button" class="chip" data-question="Show the revenue trend.">Revenue Trend</button>
+            <button type="button" class="chip" data-question="Show profitability and margins.">Profitability</button>
+            <button type="button" class="chip" data-question="Show the cash flow breakdown.">Cash Flow</button>
+            <button type="button" class="chip" data-question="Analyze ROE, ROA, and ROI return metrics.">Returns & Ratios</button>
+            <button type="button" class="chip" data-question="Evaluate balance sheet equity and debt ratios.">Balance Sheet</button>
+            <button type="button" class="chip" data-question="Show market cap, EPS, and valuation metrics.">Market & Valuation</button>
+            <button type="button" class="chip" data-question="Compare performance with the previous year.">YoY Comparison</button>
+            <button type="button" class="chip" data-question="Are there any significant variances?">Significant Variances</button>
+            <button type="button" class="chip" data-question="Give me the important financial observations.">Key Observations</button>
+          </div>
+        </div>
+
+        <div class="setup-footer">
+          <button id="analyzeBtn" class="primary-btn">
+            <span class="btn-text">Analyze Financials</span>
+            <span class="btn-spinner hidden"></span>
+          </button>
+        </div>
+
+        <p id="statusMessage" class="status-message" role="status"></p>
+      </main>
+    </div>
+  </div>
+
+
+  <!-- Screen 2: Results -->
+  <div id="screenResults" class="screen results-screen hidden">
+    <!-- Top Sticky Header -->
+    <header class="results-header">
+      <div class="results-header-inner">
+        <div class="header-left">
+          <button id="editQueryBtn" class="back-btn" title="Back to setup">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="19" y1="12" x2="5" y2="12"></line><polyline points="12 19 5 12 12 5"></polyline></svg>
+            Edit Query
+          </button>
+          <div class="query-badge-group">
+            <span id="headerTitleBadge" class="query-badge">—</span>
+            <span id="headerQuestionBadge" class="query-question">—</span>
+          </div>
+        </div>
+
+        <nav class="nav-tabs" aria-label="Section Navigation">
+          <a href="#heroSection" class="nav-tab active" data-section="hero">Hero Metrics</a>
+          <a href="#supportingSection" class="nav-tab" data-section="supporting">Supporting Metrics</a>
+          <a href="#trendsSection" class="nav-tab" data-section="trends">Trends</a>
+          <a href="#variancesSection" class="nav-tab" data-section="variances">Variances</a>
+          <a href="#aiSection" class="nav-tab" data-section="ai">AI Review</a>
+          <a href="#evidenceSection" class="nav-tab" data-section="evidence">Evidence</a>
+        </nav>
+      </div>
+    </header>
+
+    <main class="results-container">
+      
+      <!-- 1. Hero Metrics Row -->
+      <section id="heroSection" class="results-section" data-section="hero">
+        <div class="section-title-bar">
+          <h2>Core Headline Metrics</h2>
+          <p class="section-desc">Primary performance indicators and Year-over-Year movement</p>
+        </div>
+        <div id="heroRow" class="hero-grid"></div>
+      </section>
+
+      <!-- 2. Supporting Metrics Grid -->
+      <section id="supportingSection" class="results-section" data-section="supporting">
+        <div class="section-title-bar">
+          <h2>Supporting Financial Metrics</h2>
+          <p class="section-desc">Secondary balance sheet, cash flow, and valuation ratios</p>
+        </div>
+        <div id="supportingGrid" class="supporting-grid"></div>
+      </section>
+
+      <!-- 3. Trends & Analysis Section -->
+      <section id="trendsSection" class="results-section" data-section="trends">
+        <div class="section-title-bar">
+          <h2>Financial Trends</h2>
+          <p class="section-desc">Multi-year trend analysis and profitability visualizations</p>
+        </div>
+
+        <div class="chart-grid">
+          <div class="chart-card" data-chart="revenue_trend">
+            <div class="chart-header">
+              <h3>Revenue Trend</h3>
+            </div>
+            <div class="chart-wrapper">
+              <canvas id="revenueTrendChart"></canvas>
+            </div>
+            <p class="chart-empty" id="revenueTrendEmpty" hidden>Revenue data is not available for this company.</p>
+          </div>
+
+          <div class="chart-card" data-chart="net_income_trend">
+            <div class="chart-header">
+              <h3>Net Income Trend</h3>
+            </div>
+            <div class="chart-wrapper">
+              <canvas id="netIncomeTrendChart"></canvas>
+            </div>
+            <p class="chart-empty" id="netIncomeTrendEmpty" hidden>Net income data is not available for this company.</p>
+          </div>
+
+          <div class="chart-card" data-chart="current_vs_previous_revenue">
+            <div class="chart-header">
+              <h3>Current vs Previous Year — Revenue</h3>
+            </div>
+            <div class="chart-wrapper">
+              <canvas id="currentVsPreviousChart"></canvas>
+            </div>
+            <p class="chart-empty" id="currentVsPreviousEmpty" hidden>A previous year is not available for comparison.</p>
+          </div>
+
+          <div class="chart-card" data-chart="grouped_comparison">
+            <div class="chart-header">
+              <h3>Financial Metrics Comparison</h3>
+            </div>
+            <div class="chart-wrapper">
+              <canvas id="groupedBarChart"></canvas>
+            </div>
+            <p class="chart-empty" id="groupedBarEmpty" hidden>Not enough data to compare metrics.</p>
+          </div>
+
+          <div class="chart-card full-width" data-chart="profitability">
+            <div class="chart-header">
+              <h3>Profitability Margins</h3>
+            </div>
+            <div class="chart-wrapper">
+              <canvas id="profitabilityChart"></canvas>
+            </div>
+            <p class="chart-empty" id="profitabilityEmpty" hidden>Margin data is not available for this company.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- 4. Variances Section -->
+      <section id="variancesSection" class="results-section" data-section="variances">
+        <div class="section-title-bar">
+          <h2>Year-over-Year Variances</h2>
+          <p class="section-desc">Significant metric deviations and YoY change breakdown</p>
+        </div>
+
+        <div class="variances-layout">
+          <div class="variance-card">
+            <h3>Significant Variances</h3>
+            <div id="varianceList" class="variance-list"></div>
+          </div>
+
+          <div class="chart-card" data-chart="yoy_percent_change">
+            <div class="chart-header">
+              <h3>Year-over-Year % Change</h3>
+            </div>
+            <div class="chart-wrapper">
+              <canvas id="yoyChart"></canvas>
+            </div>
+            <p class="chart-empty" id="yoyEmpty" hidden>A previous year is not available for comparison.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- 5. AI Review Section -->
+      <section id="aiSection" class="results-section" data-section="ai">
+        <div class="section-title-bar">
+          <h2>AI Financial Review</h2>
+          <p class="section-desc">Executive narrative generated by Gemini AI model</p>
+        </div>
+
+        <div class="ai-review-card">
+          <div class="ai-review-header">
+            <div class="ai-sparkle-icon">✨</div>
+            <h3>Executive Narrative</h3>
+          </div>
+          <div id="aiReviewBody" class="ai-review-body"></div>
+        </div>
+
+        <div class="observations-container">
+          <h3>Key Observation Cards</h3>
+          <div id="observationsList" class="observations-list"></div>
+        </div>
+      </section>
+
+      <!-- 6. Raw Evidence Section (Collapsed details disclosure) -->
+      <section id="evidenceSection" class="results-section" data-section="evidence">
+        <details id="evidenceDetails" class="evidence-accordion">
+          <summary class="evidence-summary">
+            <div class="summary-left">
+              <span class="summary-icon">🔍</span>
+              <span class="summary-title">View Raw Metric Evidence (Python Calculated JSON)</span>
+            </div>
+            <span class="summary-badge">Hidden by default</span>
+          </summary>
+          <div class="evidence-body">
+            <p class="evidence-note">Every figure referenced above, exactly as calculated by Python.</p>
+            <pre id="evidenceBlock" class="evidence-block"></pre>
+            <div class="source-info">
+              <span id="dataSourceInfo"></span>
+            </div>
+          </div>
+        </details>
+      </section>
+
+    </main>
+  </div>
+
+<script src="script.js"></script>
+</body>
+</html>
