@@ -88,6 +88,7 @@ def generate_financial_review(evidence: dict) -> str:
     )
 
     # Groq Cloud API integration (ONLY provider used)
+    groq_key = (os.environ.get("GROQ_API_KEY") or "").strip()
     if not groq_key:
         raise RuntimeError("GROQ_API_KEY is not set in environment variables.")
 
