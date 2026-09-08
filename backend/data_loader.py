@@ -108,23 +108,32 @@ TICKER_TO_NAME = {
 }
 
 
+def normalize_supabase_url(db_url: str) -> str:
+    if not db_url:
+        return db_url
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql://", 1)
+    
+    # Auto-rewrite legacy IPv6 direct host (db.<ref>.supabase.co) to active IPv4 pooler
+    import re
+    m = re.search(r"@db\.([a-z0-9]+)\.supabase\.co(?::\d+)?", db_url)
+    if m:
+        ref = m.group(1)
+        if f"postgres.{ref}:" not in db_url:
+            db_url = re.sub(r"postgresql://postgres:", f"postgresql://postgres.{ref}:", db_url)
+        db_url = re.sub(r"@db\.[a-z0-9]+\.supabase\.co(?::\d+)?", "@aws-0-ap-southeast-1.pooler.supabase.com:6543", db_url)
+    elif ":5432" in db_url:
+        db_url = db_url.replace(":5432/", ":6543/").replace(":5432", ":6543")
+    return db_url
+
+
 def load_dataset_from_db(db_url: str) -> pd.DataFrame:
     """Load dataset from PostgreSQL / Supabase using SQLAlchemy."""
     if not HAS_SQLALCHEMY:
         raise ImportError("sqlalchemy and psycopg2-binary are required.")
 
-    # Normalise URL scheme for SQLAlchemy 2.0+
-    if db_url.startswith("postgres://"):
-        db_url = db_url.replace("postgres://", "postgresql://", 1)
-
-    # Supabase transaction pooler runs on port 6543 (IPv4-friendly).
-    # Always rewrite :5432 -> :6543 so Render free-tier can reach it.
-    if ":5432" in db_url:
-        db_url_pooler = db_url.replace(":5432/", ":6543/").replace(":5432", ":6543")
-        print(f"[data_loader] Rewriting port 5432->6543 for Supabase pooler: {db_url_pooler[:60]}...")
-    else:
-        db_url_pooler = db_url
-        print(f"[data_loader] Connecting to DB (pooler URL): {db_url_pooler[:60]}...")
+    db_url_pooler = normalize_supabase_url(db_url)
+    print(f"[data_loader] Connecting to Supabase (pooler URL): {db_url_pooler[:60]}...")
 
     engine = create_engine(
         db_url_pooler,

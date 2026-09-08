@@ -10,4 +10,4 @@ services:
       - key: GROQ_API_KEY
         sync: false
       - key: DATABASE_URL
-        value: postgresql://postgres:agent456788990445@db.dqysjythoxcbhmuxyxiy.supabase.co:6543/postgres
+        value: postgresql://postgres.dqysjythoxcbhmuxyxiy:agent456788990445@aws-0-ap-southeast-1.pooler.supabase.com:6543/postgres
