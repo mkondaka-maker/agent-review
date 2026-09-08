@@ -89,24 +89,57 @@ def generate_financial_review(evidence: dict) -> str:
 
     # Groq Cloud API integration (ONLY provider used)
     groq_key = (os.environ.get("GROQ_API_KEY") or "").strip()
-    if not groq_key:
-        raise RuntimeError("GROQ_API_KEY is not set in environment variables.")
+    openrouter_key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
+    openai_key = (os.environ.get("OPENAI_API_KEY") or "").strip()
 
     import urllib.request
-    models_to_try = [
-        os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
-        "llama-3.3-70b-versatile",
-        "llama-3.1-8b-instant",
-        "llama3-70b-8192",
-        "mixtral-8x7b-32768",
-    ]
-    models_to_try = list(dict.fromkeys([m for m in models_to_try if m]))
-    last_err = None
 
-    for model in models_to_try:
+    # 1. Groq Cloud API integration
+    if groq_key:
+        models_to_try = [
+            os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
+            "llama-3.3-70b-versatile",
+            "llama-3.1-8b-instant",
+            "llama3-70b-8192",
+            "mixtral-8x7b-32768",
+        ]
+        models_to_try = list(dict.fromkeys([m for m in models_to_try if m]))
+
+        for model in models_to_try:
+            try:
+                req_data = json.dumps({
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": REVIEW_SYSTEM_PROMPT},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    "temperature": 0.2,
+                    "max_tokens": 1200
+                }).encode("utf-8")
+
+                req = urllib.request.Request(
+                    "https://api.groq.com/openai/v1/chat/completions",
+                    data=req_data,
+                    headers={
+                        "Authorization": f"Bearer {groq_key}",
+                        "Content-Type": "application/json",
+                        "User-Agent": "Mozilla/5.0"
+                    },
+                    method="POST"
+                )
+                with urllib.request.urlopen(req, timeout=15) as res:
+                    body = json.loads(res.read().decode("utf-8"))
+                    text = body["choices"][0]["message"]["content"]
+                    if text:
+                        return text.strip()
+            except Exception as err:
+                print(f"[agent] Groq model '{model}' failed: {err}")
+
+    # 2. OpenRouter API integration
+    if openrouter_key:
         try:
             req_data = json.dumps({
-                "model": model,
+                "model": os.environ.get("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
                 "messages": [
                     {"role": "system", "content": REVIEW_SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt}
@@ -116,12 +149,11 @@ def generate_financial_review(evidence: dict) -> str:
             }).encode("utf-8")
 
             req = urllib.request.Request(
-                "https://api.groq.com/openai/v1/chat/completions",
+                "https://openrouter.ai/api/v1/chat/completions",
                 data=req_data,
                 headers={
-                    "Authorization": f"Bearer {groq_key}",
+                    "Authorization": f"Bearer {openrouter_key}",
                     "Content-Type": "application/json",
-                    "User-Agent": "Mozilla/5.0"
                 },
                 method="POST"
             )
@@ -130,19 +162,40 @@ def generate_financial_review(evidence: dict) -> str:
                 text = body["choices"][0]["message"]["content"]
                 if text:
                     return text.strip()
-        except urllib.error.HTTPError as http_err:
-            error_body = ""
-            try:
-                error_body = http_err.read().decode("utf-8")
-            except Exception:
-                pass
-            print(f"[agent] Groq model '{model}' HTTP {http_err.code}: {error_body}")
-            last_err = f"HTTP {http_err.code}: {error_body if error_body else http_err.reason}"
         except Exception as err:
-            print(f"[agent] Groq model '{model}' failed: {err}")
-            last_err = err
+            print(f"[agent] OpenRouter API failed: {err}")
 
-    raise RuntimeError(f"Groq API error: {last_err}")
+    # 3. OpenAI API integration
+    if openai_key:
+        try:
+            req_data = json.dumps({
+                "model": os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+                "messages": [
+                    {"role": "system", "content": REVIEW_SYSTEM_PROMPT},
+                    {"role": "user", "content": user_prompt}
+                ],
+                "temperature": 0.2,
+                "max_tokens": 1200
+            }).encode("utf-8")
+
+            req = urllib.request.Request(
+                "https://api.openai.com/v1/chat/completions",
+                data=req_data,
+                headers={
+                    "Authorization": f"Bearer {openai_key}",
+                    "Content-Type": "application/json",
+                },
+                method="POST"
+            )
+            with urllib.request.urlopen(req, timeout=15) as res:
+                body = json.loads(res.read().decode("utf-8"))
+                text = body["choices"][0]["message"]["content"]
+                if text:
+                    return text.strip()
+        except Exception as err:
+            print(f"[agent] OpenAI API failed: {err}")
+
+    raise RuntimeError("AI narrative generation failed: Please configure a valid GROQ_API_KEY, OPENROUTER_API_KEY, or OPENAI_API_KEY.")
 
 
 def generate_key_observations(evidence: dict) -> list:
