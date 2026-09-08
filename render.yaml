@@ -9,3 +9,5 @@ services:
         value: llama-3.3-70b-versatile
       - key: GROQ_API_KEY
         sync: false
+      - key: DATABASE_URL
+        value: postgresql://postgres:agent456788990445@db.dqysjythoxcbhmuxyxiy.supabase.co:5432/postgres
