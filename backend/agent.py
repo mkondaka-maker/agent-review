@@ -95,7 +95,7 @@ def generate_financial_review(evidence: dict) -> str:
             from google.genai import types
 
             gemini_client = genai.Client(api_key=gemini_key)
-            gemini_model = os.environ.get("GEMINI_MODEL", "gemini-2.5-flash")
+            gemini_model = os.environ.get("GEMINI_MODEL", "gemini-3.6-flash")
             config = types.GenerateContentConfig(
                 system_instruction=REVIEW_SYSTEM_PROMPT,
                 temperature=0.2,
