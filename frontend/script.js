@@ -45,45 +45,80 @@ async function init() {
   // Tab jump scroll highlighting
   setupTabNavigation();
 
-  // Load initial companies list
+  // Load initial companies and all available years
   try {
-    setStatus("Loading companies…", "loading");
-    const res = await fetch(`${API_BASE}/api/companies`);
-    const data = await res.json();
-    if (data.error) throw new Error(data.error);
+    setStatus("Loading data…", "loading");
+    const [compRes, yearRes] = await Promise.all([
+      fetch(`${API_BASE}/api/companies`),
+      fetch(`${API_BASE}/api/years`),
+    ]);
 
-    companySelect.innerHTML = `<option value="">Select company</option>`;
-    data.companies.forEach((c) => {
-      const opt = document.createElement("option");
-      opt.value = c;
-      opt.textContent = c;
-      companySelect.appendChild(opt);
-    });
+    const compData = await compRes.json();
+    if (compData.companies) {
+      companySelect.innerHTML = `<option value="">Select company</option>`;
+      compData.companies.forEach((c) => {
+        const opt = document.createElement("option");
+        opt.value = c;
+        opt.textContent = c;
+        companySelect.appendChild(opt);
+      });
+    }
+
+    const yearData = await yearRes.json();
+    if (yearData.years) {
+      yearSelect.innerHTML = `<option value="">Select year</option>`;
+      yearData.years.forEach((y) => {
+        const opt = document.createElement("option");
+        opt.value = y;
+        opt.textContent = y;
+        yearSelect.appendChild(opt);
+      });
+      yearSelect.disabled = false;
+    }
+
     setStatus("");
   } catch (err) {
-    setStatus(`Could not load companies: ${err.message}`);
+    setStatus(`Could not load data: ${err.message}`);
   }
 }
 
 async function onCompanyChange() {
   const company = companySelect.value;
   yearSelect.innerHTML = `<option value="">Select year</option>`;
-  yearSelect.disabled = true;
 
-  if (!company) return;
+  if (!company) {
+    // If deselected, load all years
+    try {
+      const res = await fetch(`${API_BASE}/api/years`);
+      const data = await res.json();
+      if (data.years) {
+        data.years.forEach((y) => {
+          const opt = document.createElement("option");
+          opt.value = y;
+          opt.textContent = y;
+          yearSelect.appendChild(opt);
+        });
+      }
+    } catch (e) {}
+    return;
+  }
 
   try {
     const res = await fetch(`${API_BASE}/api/years?company=${encodeURIComponent(company)}`);
     const data = await res.json();
     if (data.error) throw new Error(data.error);
 
-    data.years.forEach((y) => {
-      const opt = document.createElement("option");
-      opt.value = y;
-      opt.textContent = y;
-      yearSelect.appendChild(opt);
-    });
-    yearSelect.disabled = false;
+    if (data.years && data.years.length > 0) {
+      data.years.forEach((y) => {
+        const opt = document.createElement("option");
+        opt.value = y;
+        opt.textContent = y;
+        yearSelect.appendChild(opt);
+      });
+      // Auto-select the latest year by default
+      yearSelect.value = data.years[0];
+      yearSelect.disabled = false;
+    }
   } catch (err) {
     setStatus(`Could not load years: ${err.message}`);
   }

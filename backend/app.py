@@ -101,10 +101,11 @@ def api_companies():
 @app.route("/api/years", methods=["GET"])
 def api_years():
     company = request.args.get("company")
-    if not company:
-        return jsonify({"error": "Please select a company."}), 400
     try:
-        return jsonify({"years": data_loader.get_years(company)})
+        years = data_loader.get_years(company)
+        # Return descending order (most recent first)
+        years_sorted = sorted(years, reverse=True)
+        return jsonify({"years": years_sorted})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
