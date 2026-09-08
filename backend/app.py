@@ -45,12 +45,20 @@ def api_health():
         source = data_loader.get_data_source()
         companies = data_loader.get_companies()
         df = data_loader.load_dataset()
+        db_err = None
+        db_url = os.environ.get("DATABASE_URL")
+        if source != "postgresql" and db_url:
+            try:
+                data_loader.load_dataset_from_db(db_url)
+            except Exception as e:
+                db_err = str(e)
         return jsonify({
             "status": "ok",
             "data_source": source,
             "total_records": len(df),
             "total_companies": len(companies),
-            "companies": companies
+            "companies": companies,
+            "db_error": db_err
         })
     except Exception as e:
         return jsonify({"status": "error", "error": str(e)}), 500
