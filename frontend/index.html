@@ -228,24 +228,18 @@
         </div>
       </section>
 
-      <!-- 6. Raw Evidence Section (Collapsed details disclosure) -->
+      <!-- 6. Raw Evidence Section -->
       <section id="evidenceSection" class="results-section" data-section="evidence">
-        <details id="evidenceDetails" class="evidence-accordion">
-          <summary class="evidence-summary">
-            <div class="summary-left">
-              <span class="summary-icon">🔍</span>
-              <span class="summary-title">View Raw Metric Evidence (Python Calculated JSON)</span>
-            </div>
-            <span class="summary-badge">Hidden by default</span>
-          </summary>
-          <div class="evidence-body">
-            <p class="evidence-note">Every figure referenced above, exactly as calculated by Python.</p>
-            <pre id="evidenceBlock" class="evidence-block"></pre>
-            <div class="source-info">
-              <span id="dataSourceInfo"></span>
-            </div>
+        <div class="evidence-card">
+          <div class="section-title-bar">
+            <h2>Evidence</h2>
+            <p class="section-desc">Every figure referenced above, exactly as calculated by Python.</p>
           </div>
-        </details>
+          <pre id="evidenceBlock" class="evidence-block"></pre>
+          <div class="source-info">
+            <span id="dataSourceInfo"></span>
+          </div>
+        </div>
       </section>
 
     </main>

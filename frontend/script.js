@@ -17,12 +17,13 @@ const headerQuestionBadge = document.getElementById("headerQuestionBadge");
 // Chart instances store
 const charts = {};
 
-// Color Tokens (Directional & Theme)
-const COLOR_UP = "#10b981";       // Emerald green for positive growth
-const COLOR_DOWN = "#ef4444";     // Rose red for negative growth
-const COLOR_ACCENT = "#3b82f6";   // Sapphire blue
-const COLOR_GOLD = "#f59e0b";     // Amber gold
-const COLOR_NEUTRAL = "#94a3b8";  // Muted text color
+// Color Tokens (Beach & White Theme)
+const COLOR_UP = "#1E5642";       // Forest Pine Green
+const COLOR_DOWN = "#B84A39";     // Brick Red
+const COLOR_ACCENT = "#1E5642";   // Primary Accent
+const COLOR_GOLD = "#C49A45";     // Warm Ochre Sand
+const COLOR_NEUTRAL = "#2C3E50";  // Slate Navy
+const COLOR_BORDER = "#EAE5DD";   // Soft light border
 
 init();
 
@@ -291,21 +292,8 @@ function renderStructuredMetricCards(data) {
       const card = document.createElement("div");
       card.className = "hero-card";
 
-      let badgeHtml = "";
-      if (m.percentChange !== null && m.percentChange !== undefined) {
-        const isUp = m.percentChange >= 0;
-        const arrow = isUp ? "▲" : "▼";
-        const badgeClass = isUp ? "delta-up" : "delta-down";
-        badgeHtml = `<span class="hero-delta ${badgeClass}">${arrow} ${isUp ? "+" : ""}${m.percentChange}% YoY</span>`;
-      } else {
-        badgeHtml = `<span class="hero-delta delta-neutral">N/A</span>`;
-      }
-
       card.innerHTML = `
-        <div class="hero-card-header">
-          <span class="hero-label">${m.name}</span>
-          ${badgeHtml}
-        </div>
+        <div class="hero-label">${m.name}</div>
         <div class="hero-value">${formatMetricValue(m.key, m.value)}</div>
       `;
       heroRow.appendChild(card);
@@ -318,20 +306,9 @@ function renderStructuredMetricCards(data) {
       const card = document.createElement("div");
       card.className = "supporting-card";
 
-      let deltaHtml = "";
-      if (m.percentChange !== null && m.percentChange !== undefined) {
-        const isUp = m.percentChange >= 0;
-        const arrow = isUp ? "▲" : "▼";
-        const deltaClass = isUp ? "text-up" : "text-down";
-        deltaHtml = `<span class="supporting-delta ${deltaClass}">${arrow} ${isUp ? "+" : ""}${m.percentChange}%</span>`;
-      }
-
       card.innerHTML = `
         <div class="supporting-label">${m.name}</div>
-        <div class="supporting-val-row">
-          <span class="supporting-value">${formatMetricValue(m.key, m.value)}</span>
-          ${deltaHtml}
-        </div>
+        <div class="supporting-value">${formatMetricValue(m.key, m.value)}</div>
       `;
       supportingGrid.appendChild(card);
     });
@@ -340,7 +317,7 @@ function renderStructuredMetricCards(data) {
 
 function formatMetricName(key) {
   if (key === "Market Cap (B USD)") return "Market Cap";
-  if (key === "Earning Per Share") return "EPS";
+  if (key === "Earning Per Share") return "Earning Per Share";
   return key;
 }
 
@@ -352,23 +329,20 @@ function formatMetricValue(key, value) {
 
   const keyLower = key.toLowerCase();
   
-  if (keyLower.includes("margin") || keyLower.includes("roe") || keyLower.includes("roa") || keyLower.includes("roi") || keyLower.includes("ratio")) {
+  // Format percentages/ratios
+  if (keyLower.includes("margin") || keyLower.includes("roe") || keyLower.includes("roa") || keyLower.includes("roi")) {
     if (Math.abs(num) <= 1 && num !== 0) {
-      return (num * 100).toFixed(2) + "%";
+      return (num * 100).toFixed(2);
     }
-    return num.toFixed(2) + "%";
+    return num.toFixed(2);
+  }
+
+  if (keyLower.includes("current ratio") || keyLower.includes("debt equity") || keyLower.includes("ratio")) {
+    return num.toFixed(2);
   }
 
   if (keyLower.includes("eps") || keyLower.includes("per share")) {
-    return "$" + num.toFixed(2);
-  }
-
-  if (keyLower.includes("market cap")) {
-    return "$" + num.toLocaleString(undefined, { maximumFractionDigits: 2 }) + "B";
-  }
-
-  if (Math.abs(num) >= 1000000) {
-    return "$" + (num / 1000).toLocaleString(undefined, { maximumFractionDigits: 2 }) + "M";
+    return num.toFixed(2);
   }
 
   if (Math.abs(num) >= 1000) {
@@ -416,15 +390,15 @@ function renderTrendChart(canvasId, chartAttrKey, chartData, color) {
         label: chartData.metric,
         data: chartData.values,
         borderColor: color,
-        backgroundColor: color + "1a",
-        borderWidth: 2.5,
+        backgroundColor: color === COLOR_UP ? "rgba(30, 86, 66, 0.1)" : "rgba(196, 154, 69, 0.1)",
+        borderWidth: 2.2,
         tension: 0.3,
         fill: true,
         pointBackgroundColor: color,
-        pointRadius: 4,
+        pointRadius: 3.5,
       }],
     },
-    options: darkChartOptions(),
+    options: lightChartOptions(),
   });
 }
 
@@ -447,11 +421,11 @@ function renderCurrentVsPrevious(chartData) {
       datasets: [{
         label: chartData.metric,
         data: chartData.values,
-        backgroundColor: [COLOR_NEUTRAL, COLOR_ACCENT],
-        borderRadius: 4,
+        backgroundColor: [COLOR_NEUTRAL, COLOR_UP],
+        borderRadius: 3,
       }],
     },
-    options: darkChartOptions(),
+    options: lightChartOptions(),
   });
 }
 
@@ -467,7 +441,7 @@ function renderGroupedBar(chartData) {
   const ctx = document.getElementById(canvasId);
   if (!ctx) return;
 
-  const colors = [COLOR_NEUTRAL, COLOR_ACCENT];
+  const colors = [COLOR_NEUTRAL, COLOR_UP];
   charts[canvasId] = new Chart(ctx, {
     type: "bar",
     data: {
@@ -476,10 +450,10 @@ function renderGroupedBar(chartData) {
         label: s.name,
         data: s.values,
         backgroundColor: colors[i % colors.length],
-        borderRadius: 4,
+        borderRadius: 3,
       })),
     },
-    options: darkChartOptions(),
+    options: lightChartOptions(),
   });
 }
 
@@ -503,10 +477,10 @@ function renderYoyChart(chartData) {
         label: "% Change",
         data: chartData.values,
         backgroundColor: chartData.values.map((v) => (v >= 0 ? COLOR_UP : COLOR_DOWN)),
-        borderRadius: 4,
+        borderRadius: 3,
       }],
     },
-    options: { ...darkChartOptions(), indexAxis: "y" },
+    options: { ...lightChartOptions(), indexAxis: "y" },
   });
 }
 
@@ -522,7 +496,7 @@ function renderProfitabilityChart(chartData) {
   const ctx = document.getElementById(canvasId);
   if (!ctx) return;
 
-  const palette = [COLOR_UP, COLOR_GOLD, COLOR_ACCENT];
+  const palette = [COLOR_UP, COLOR_GOLD, COLOR_NEUTRAL];
   charts[canvasId] = new Chart(ctx, {
     type: "line",
     data: {
@@ -536,11 +510,11 @@ function renderProfitabilityChart(chartData) {
         tension: 0.3,
       })),
     },
-    options: darkChartOptions(),
+    options: lightChartOptions(),
   });
 }
 
-function darkChartOptions() {
+function lightChartOptions() {
   return {
     responsive: true,
     maintainAspectRatio: false,
@@ -548,24 +522,24 @@ function darkChartOptions() {
       legend: {
         display: true,
         position: "top",
-        labels: { color: "#94a3b8", font: { family: "IBM Plex Sans", size: 12 } },
+        labels: { color: "#52616B", font: { family: "IBM Plex Sans", size: 12 } },
       },
       tooltip: {
-        backgroundColor: "#0f172a",
-        titleColor: "#f8fafc",
-        bodyColor: "#cbd5e1",
-        borderColor: "#334155",
+        backgroundColor: "#1A253C",
+        titleColor: "#FFFFFF",
+        bodyColor: "#E2E8F0",
+        borderColor: "#EAE5DD",
         borderWidth: 1,
       },
     },
     scales: {
       x: {
-        grid: { color: "#1e293b", drawBorder: false },
-        ticks: { color: "#64748b", font: { family: "IBM Plex Sans", size: 11 } },
+        grid: { color: "#EAE5DD", drawBorder: false },
+        ticks: { color: "#64748B", font: { family: "IBM Plex Sans", size: 11 } },
       },
       y: {
-        grid: { color: "#1e293b", drawBorder: false },
-        ticks: { color: "#64748b", font: { family: "IBM Plex Sans", size: 11 } },
+        grid: { color: "#EAE5DD", drawBorder: false },
+        ticks: { color: "#64748B", font: { family: "IBM Plex Sans", size: 11 } },
       },
     },
   };
@@ -586,7 +560,7 @@ function renderVariances(variances) {
     div.className = `variance-item ${isUp ? "variance-up" : "variance-down"}`;
     div.innerHTML = `
       <span class="variance-metric">${v.metric}</span>
-      <span class="variance-val">${isUp ? "▲ +" : "▼ "}${v.percent_change}%</span>
+      <span class="variance-val">${isUp ? "+" : ""}${v.percent_change}%</span>
     `;
     list.appendChild(div);
   });
@@ -613,10 +587,7 @@ function renderObservations(observations) {
   observations.forEach((obs) => {
     const div = document.createElement("div");
     div.className = "observation-card";
-    div.innerHTML = `
-      <div class="obs-icon">💡</div>
-      <div class="obs-text">${obs}</div>
-    `;
+    div.innerHTML = `<div class="obs-text">${obs}</div>`;
     list.appendChild(div);
   });
 }
