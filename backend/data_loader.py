@@ -103,6 +103,8 @@ def load_dataset(force_reload: bool = False) -> pd.DataFrame:
     df = None
     loaded_source = None
 
+    # Supabase direct connections fail from free-tier Render IPs (Network unreachable).
+    # If connection fails or times out, fallback to CSV immediately.
     if db_url and HAS_SQLALCHEMY:
         try:
             df = load_dataset_from_db(db_url)

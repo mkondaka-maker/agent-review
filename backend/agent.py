@@ -105,12 +105,14 @@ def generate_financial_review(evidence: dict) -> str:
             # Remove duplicates preserving order
             models_to_try = list(dict.fromkeys([m for m in models_to_try if m]))
             
+            http_opts = types.HttpOptions(timeout=10000)
             for m in models_to_try:
                 try:
                     response = gemini_client.models.generate_content(
                         model=m,
                         contents=user_prompt,
                         config=config,
+                        http_options=http_opts,
                     )
                     if response and response.text:
                         return response.text.strip()
