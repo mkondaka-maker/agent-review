@@ -82,7 +82,7 @@ def load_dataset_from_db(db_url: str) -> pd.DataFrame:
     if db_url.startswith("postgres://"):
         db_url = db_url.replace("postgres://", "postgresql://", 1)
 
-    engine = create_engine(db_url, pool_pre_ping=True)
+    engine = create_engine(db_url, pool_pre_ping=True, connect_args={"connect_timeout": 3})
     with engine.connect() as conn:
         df = pd.read_sql("SELECT * FROM financial_statements", conn)
 
