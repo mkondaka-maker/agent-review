@@ -1,6 +1,6 @@
 Flask==3.0.3
 Flask-Cors==4.0.1
-pandas==2.2.2
+pandas==2.2.3
 python-dotenv==1.0.1
 anthropic==0.34.2
 sqlalchemy==2.0.43
