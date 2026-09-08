@@ -6,7 +6,7 @@ services:
     startCommand: gunicorn --chdir backend app:app --bind 0.0.0.0:$PORT --timeout 120 --workers 1
     envVars:
       - key: GROQ_MODEL
-        value: llama-3.3-70b-versatile
+        value: openai/gpt-oss-120b
       - key: GROQ_API_KEY
         sync: false
       - key: DATABASE_URL

@@ -16,10 +16,28 @@ try:
 except ImportError:
     HAS_SQLALCHEMY = False
 
-DATA_PATH = os.environ.get(
-    "FINANCIAL_CSV_PATH",
-    os.path.join(os.path.dirname(__file__), "..", "data", "Financial_Statements.csv"),
-)
+def get_csv_path() -> str:
+    env_path = os.environ.get("FINANCIAL_CSV_PATH")
+    candidates = []
+    if env_path:
+        candidates.extend([
+            env_path,
+            os.path.join(os.path.dirname(__file__), env_path),
+            os.path.join(os.path.dirname(__file__), "..", env_path),
+            os.path.join(os.getcwd(), env_path),
+        ])
+    candidates.extend([
+        os.path.join(os.path.dirname(__file__), "..", "data", "Financial_Statements.csv"),
+        os.path.join(os.path.dirname(__file__), "data", "Financial_Statements.csv"),
+        os.path.join(os.getcwd(), "data", "Financial_Statements.csv"),
+        os.path.join(os.getcwd(), "..", "data", "Financial_Statements.csv"),
+    ])
+    for c in candidates:
+        if c and os.path.exists(c):
+            return os.path.abspath(c)
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "data", "Financial_Statements.csv"))
+
+DATA_PATH = get_csv_path()
 
 # Columns we will treat as numeric financial metrics IF they exist in the dataset.
 KNOWN_METRIC_COLUMNS = [

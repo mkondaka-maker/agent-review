@@ -2,15 +2,21 @@
 agent.py
 The AI agent's job is limited to two things:
   1. Understand the user's natural-language intent (which analysis/metrics are needed).
-  2. Turn Python-calculated evidence into a written, evidence-grounded review using Google Gemini AI or Anthropic Claude.
+  2. Turn Python-calculated evidence into a written, evidence-grounded review using LLM providers (Groq, Google Gemini, OpenRouter, OpenAI).
 It NEVER performs financial math itself.
 """
 
 import os
+import re
 import json
+import urllib.request
+import urllib.error
 from dotenv import load_dotenv
 
 load_dotenv()
+
+# Standard User-Agent to avoid Cloudflare/WAF block (HTTP 403 / code 1010)
+HTTP_HEADERS_USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
 
 # --- Intent classification --------------------------------------------
 
@@ -74,38 +80,94 @@ STRICT RULES:
 """
 
 
+def _clean_think_tags(text: str) -> str:
+    """Remove any <think>...</think> reasoning traces emitted by reasoning models."""
+    if not text:
+        return ""
+    text = re.sub(r"<think>[\s\S]*?</think>", "", text, flags=re.IGNORECASE)
+    return text.strip()
+
+
+def _fetch_groq_models(groq_key: str) -> list:
+    """Dynamically query Groq API to discover active chat completion models."""
+    try:
+        req = urllib.request.Request(
+            "https://api.groq.com/openai/v1/models",
+            headers={
+                "Authorization": f"Bearer {groq_key}",
+                "Content-Type": "application/json",
+                "User-Agent": HTTP_HEADERS_USER_AGENT,
+            },
+        )
+        with urllib.request.urlopen(req, timeout=8) as res:
+            data = json.loads(res.read().decode("utf-8"))
+            model_ids = [m["id"] for m in data.get("data", [])]
+            # Exclude audio and moderation/guard models
+            chat_models = [
+                m for m in model_ids
+                if not any(x in m for x in ["whisper", "guard", "safeguard", "orpheus"])
+            ]
+            return chat_models
+    except Exception as e:
+        print(f"[agent] Note: Dynamic Groq models discovery skipped: {e}")
+        return []
+
+
 def generate_financial_review(evidence: dict) -> str:
     """
-    Send structured, Python-calculated evidence to Groq API
+    Send structured, Python-calculated evidence to LLM API (Groq, Gemini, OpenRouter, OpenAI)
     and ask it to explain only what's supplied.
     """
-    groq_key = os.environ.get("GROQ_API_KEY")
-
     user_prompt = (
         "Here is the evidence calculated by Python for this financial review. "
         "Only discuss the metrics provided below. Do not reference any other financial metric:\n\n"
         + json.dumps(evidence, indent=2, default=str)
     )
 
-    # Groq Cloud API integration (ONLY provider used)
     groq_key = (os.environ.get("GROQ_API_KEY") or "").strip()
+    gemini_key = (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY") or "").strip()
     openrouter_key = (os.environ.get("OPENROUTER_API_KEY") or "").strip()
     openai_key = (os.environ.get("OPENAI_API_KEY") or "").strip()
 
-    import urllib.request
-
     # 1. Groq Cloud API integration
     if groq_key:
-        models_to_try = [
-            os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        configured_model = (os.environ.get("GROQ_MODEL") or "").strip()
+        dynamic_models = _fetch_groq_models(groq_key)
+        
+        # Priority list of modern, active Groq chat models
+        preferred_models = [
+            "openai/gpt-oss-120b",
+            "openai/gpt-oss-20b",
+            "groq/compound-mini",
+            "groq/compound",
+            "qwen/qwen3.6-27b",
+            "qwen/qwen3.8-27b",
             "llama-3.3-70b-versatile",
             "llama-3.1-8b-instant",
-            "llama3-70b-8192",
-            "mixtral-8x7b-32768",
+            "llama-3.1-70b-versatile",
+            "allam-2-7b",
         ]
-        models_to_try = list(dict.fromkeys([m for m in models_to_try if m]))
 
-        for model in models_to_try:
+        candidate_models = []
+        if configured_model:
+            candidate_models.append(configured_model)
+        
+        # Add dynamic models that are in preferred list first
+        for m in preferred_models:
+            if m in dynamic_models and m not in candidate_models:
+                candidate_models.append(m)
+        
+        # Add remaining dynamic models
+        for m in dynamic_models:
+            if m not in candidate_models:
+                candidate_models.append(m)
+                
+        # Add preferred models as fallback
+        for m in preferred_models:
+            if m not in candidate_models:
+                candidate_models.append(m)
+
+        for model in candidate_models:
             try:
                 req_data = json.dumps({
                     "model": model,
@@ -123,79 +185,150 @@ def generate_financial_review(evidence: dict) -> str:
                     headers={
                         "Authorization": f"Bearer {groq_key}",
                         "Content-Type": "application/json",
-                        "User-Agent": "Mozilla/5.0"
+                        "User-Agent": HTTP_HEADERS_USER_AGENT,
                     },
                     method="POST"
                 )
-                with urllib.request.urlopen(req, timeout=15) as res:
+                with urllib.request.urlopen(req, timeout=20) as res:
                     body = json.loads(res.read().decode("utf-8"))
                     text = body["choices"][0]["message"]["content"]
-                    if text:
-                        return text.strip()
+                    cleaned = _clean_think_tags(text)
+                    if cleaned:
+                        return cleaned
+            except urllib.error.HTTPError as err:
+                err_msg = ""
+                try:
+                    err_msg = err.read().decode("utf-8")
+                except Exception:
+                    pass
+                print(f"[agent] Groq model '{model}' HTTP {err.code}: {err_msg or err}")
             except Exception as err:
                 print(f"[agent] Groq model '{model}' failed: {err}")
 
-    # 2. OpenRouter API integration
+    # 2. Google Gemini API integration
+    if gemini_key:
+        gemini_models = [
+            os.environ.get("GEMINI_MODEL", "gemini-1.5-flash"),
+            "gemini-1.5-flash",
+            "gemini-2.0-flash",
+            "gemini-1.5-pro",
+        ]
+        gemini_models = list(dict.fromkeys([m for m in gemini_models if m]))
+        
+        for model in gemini_models:
+            try:
+                url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={gemini_key}"
+                req_data = json.dumps({
+                    "system_instruction": {"parts": [{"text": REVIEW_SYSTEM_PROMPT}]},
+                    "contents": [{"parts": [{"text": user_prompt}]}],
+                    "generationConfig": {"temperature": 0.2, "maxOutputTokens": 1200}
+                }).encode("utf-8")
+                
+                req = urllib.request.Request(
+                    url,
+                    data=req_data,
+                    headers={
+                        "Content-Type": "application/json",
+                        "User-Agent": HTTP_HEADERS_USER_AGENT,
+                    },
+                    method="POST"
+                )
+                with urllib.request.urlopen(req, timeout=20) as res:
+                    body = json.loads(res.read().decode("utf-8"))
+                    candidates = body.get("candidates", [])
+                    if candidates:
+                        parts = candidates[0].get("content", {}).get("parts", [])
+                        if parts:
+                            text = parts[0].get("text", "")
+                            cleaned = _clean_think_tags(text)
+                            if cleaned:
+                                return cleaned
+            except Exception as err:
+                print(f"[agent] Gemini model '{model}' failed: {err}")
+
+    # 3. OpenRouter API integration
     if openrouter_key:
-        try:
-            req_data = json.dumps({
-                "model": os.environ.get("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
-                "messages": [
-                    {"role": "system", "content": REVIEW_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt}
-                ],
-                "temperature": 0.2,
-                "max_tokens": 1200
-            }).encode("utf-8")
+        openrouter_models = [
+            os.environ.get("OPENROUTER_MODEL", "meta-llama/llama-3.3-70b-instruct:free"),
+            "meta-llama/llama-3.3-70b-instruct:free",
+            "google/gemini-2.0-flash-exp:free",
+            "mistralai/mistral-7b-instruct:free",
+        ]
+        openrouter_models = list(dict.fromkeys([m for m in openrouter_models if m]))
 
-            req = urllib.request.Request(
-                "https://openrouter.ai/api/v1/chat/completions",
-                data=req_data,
-                headers={
-                    "Authorization": f"Bearer {openrouter_key}",
-                    "Content-Type": "application/json",
-                },
-                method="POST"
-            )
-            with urllib.request.urlopen(req, timeout=15) as res:
-                body = json.loads(res.read().decode("utf-8"))
-                text = body["choices"][0]["message"]["content"]
-                if text:
-                    return text.strip()
-        except Exception as err:
-            print(f"[agent] OpenRouter API failed: {err}")
+        for model in openrouter_models:
+            try:
+                req_data = json.dumps({
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": REVIEW_SYSTEM_PROMPT},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    "temperature": 0.2,
+                    "max_tokens": 1200
+                }).encode("utf-8")
 
-    # 3. OpenAI API integration
+                req = urllib.request.Request(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    data=req_data,
+                    headers={
+                        "Authorization": f"Bearer {openrouter_key}",
+                        "Content-Type": "application/json",
+                        "User-Agent": HTTP_HEADERS_USER_AGENT,
+                    },
+                    method="POST"
+                )
+                with urllib.request.urlopen(req, timeout=20) as res:
+                    body = json.loads(res.read().decode("utf-8"))
+                    text = body["choices"][0]["message"]["content"]
+                    cleaned = _clean_think_tags(text)
+                    if cleaned:
+                        return cleaned
+            except Exception as err:
+                print(f"[agent] OpenRouter model '{model}' failed: {err}")
+
+    # 4. OpenAI API integration
     if openai_key:
-        try:
-            req_data = json.dumps({
-                "model": os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
-                "messages": [
-                    {"role": "system", "content": REVIEW_SYSTEM_PROMPT},
-                    {"role": "user", "content": user_prompt}
-                ],
-                "temperature": 0.2,
-                "max_tokens": 1200
-            }).encode("utf-8")
+        openai_models = [
+            os.environ.get("OPENAI_MODEL", "gpt-4o-mini"),
+            "gpt-4o-mini",
+            "gpt-4o",
+            "gpt-3.5-turbo",
+        ]
+        openai_models = list(dict.fromkeys([m for m in openai_models if m]))
 
-            req = urllib.request.Request(
-                "https://api.openai.com/v1/chat/completions",
-                data=req_data,
-                headers={
-                    "Authorization": f"Bearer {openai_key}",
-                    "Content-Type": "application/json",
-                },
-                method="POST"
-            )
-            with urllib.request.urlopen(req, timeout=15) as res:
-                body = json.loads(res.read().decode("utf-8"))
-                text = body["choices"][0]["message"]["content"]
-                if text:
-                    return text.strip()
-        except Exception as err:
-            print(f"[agent] OpenAI API failed: {err}")
+        for model in openai_models:
+            try:
+                req_data = json.dumps({
+                    "model": model,
+                    "messages": [
+                        {"role": "system", "content": REVIEW_SYSTEM_PROMPT},
+                        {"role": "user", "content": user_prompt}
+                    ],
+                    "temperature": 0.2,
+                    "max_tokens": 1200
+                }).encode("utf-8")
 
-    raise RuntimeError("AI narrative generation failed: Please configure a valid GROQ_API_KEY, OPENROUTER_API_KEY, or OPENAI_API_KEY.")
+                req = urllib.request.Request(
+                    "https://api.openai.com/v1/chat/completions",
+                    data=req_data,
+                    headers={
+                        "Authorization": f"Bearer {openai_key}",
+                        "Content-Type": "application/json",
+                        "User-Agent": HTTP_HEADERS_USER_AGENT,
+                    },
+                    method="POST"
+                )
+                with urllib.request.urlopen(req, timeout=20) as res:
+                    body = json.loads(res.read().decode("utf-8"))
+                    text = body["choices"][0]["message"]["content"]
+                    cleaned = _clean_think_tags(text)
+                    if cleaned:
+                        return cleaned
+            except Exception as err:
+                print(f"[agent] OpenAI model '{model}' failed: {err}")
+
+    raise RuntimeError("AI narrative generation failed: Please configure a valid GROQ_API_KEY, GEMINI_API_KEY, OPENROUTER_API_KEY, or OPENAI_API_KEY.")
 
 
 def generate_key_observations(evidence: dict) -> list:
