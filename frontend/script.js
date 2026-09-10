@@ -1,4 +1,5 @@
-const API_BASE = "https://agent-review-1.onrender.com"; // Render backend API
+// Dynamic API Base: Automatically uses relative path if on web/localhost server, fallback to remote
+const API_BASE = window.location.protocol.startsWith("http") ? "" : "https://agent-review-1.onrender.com";
 
 // DOM Elements - Screen 1 Setup
 const screenSetup = document.getElementById("screenSetup");
@@ -17,7 +18,7 @@ const headerQuestionBadge = document.getElementById("headerQuestionBadge");
 // Chart instances store
 const charts = {};
 
-// Color Tokens (Beach & White Theme)
+// Color Tokens (Clean Modern Theme)
 const COLOR_UP = "#1E5642";       // Forest Pine Green
 const COLOR_DOWN = "#B84A39";     // Brick Red
 const COLOR_ACCENT = "#1E5642";   // Primary Accent
@@ -35,6 +36,16 @@ async function init() {
       questionInput.focus();
     });
   });
+
+  // Allow pressing Enter in question input to trigger analysis immediately
+  if (questionInput) {
+    questionInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        onAnalyze();
+      }
+    });
+  }
 
   // Setup form event listeners
   companySelect.addEventListener("change", onCompanyChange);
@@ -56,7 +67,7 @@ async function init() {
 
     const compData = await compRes.json();
     if (compData.companies) {
-      companySelect.innerHTML = `<option value="">Select company</option>`;
+      companySelect.innerHTML = `<option value="">Select company (optional)</option>`;
       compData.companies.forEach((c) => {
         const opt = document.createElement("option");
         opt.value = c;
@@ -67,7 +78,7 @@ async function init() {
 
     const yearData = await yearRes.json();
     if (yearData.years) {
-      yearSelect.innerHTML = `<option value="">Select year</option>`;
+      yearSelect.innerHTML = `<option value="">Select year (optional)</option>`;
       yearData.years.forEach((y) => {
         const opt = document.createElement("option");
         opt.value = y;
@@ -79,16 +90,15 @@ async function init() {
 
     setStatus("");
   } catch (err) {
-    setStatus(`Could not load data: ${err.message}`);
+    setStatus(`Note: Offline or loading error: ${err.message}`);
   }
 }
 
 async function onCompanyChange() {
   const company = companySelect.value;
-  yearSelect.innerHTML = `<option value="">Select year</option>`;
+  yearSelect.innerHTML = `<option value="">Select year (optional)</option>`;
 
   if (!company) {
-    // If deselected, load all years
     try {
       const res = await fetch(`${API_BASE}/api/years`);
       const data = await res.json();
@@ -130,21 +140,39 @@ async function onAnalyze() {
   const year = yearSelect.value;
   const question = questionInput.value.trim();
 
-  if (!company) return setStatus("Please select a company.");
-  if (!year) return setStatus("Please select a year.");
-  if (!question) return setStatus("Please enter a financial question.");
+  // If no input question and no company selected, notify user
+  if (!question && !company) {
+    return setStatus("Please enter your financial question or select a company.");
+  }
 
-  setStatus("Analyzing financials with Python engine & AI…", "loading");
+  const payload = {
+    question: question || (company ? `Give me a complete financial review for ${company} in ${year || 'latest year'}.` : "Give me a complete financial review."),
+  };
+  if (company) payload.company = company;
+  if (year) payload.year = Number(year);
+
+  setStatus("Groq AI is analyzing query & querying Supabase database…", "loading");
   setLoadingState(true);
 
   try {
     const res = await fetch(`${API_BASE}/api/analyze`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ company, year: Number(year), question }),
+      body: JSON.stringify(payload),
     });
     const data = await res.json();
-    if (data.error) throw new Error(data.error);
+    if (!res.ok || data.error) {
+      throw new Error(data.error || `Server error (${res.status})`);
+    }
+
+    // Auto-sync company and year dropdowns to what Groq identified from messy query
+    if (data.company && companySelect) {
+      companySelect.value = data.company;
+      await onCompanyChange();
+      if (data.year && yearSelect) {
+        yearSelect.value = data.year;
+      }
+    }
 
     // Switch view to Screen 2
     renderReport(data);
@@ -190,9 +218,12 @@ function showResultsScreen() {
 /* ---------------------------------------------------------------- RENDER REPORT */
 
 function renderReport(data) {
-  const compStr = `${data.company} — ${data.year}` + (data.previous_year ? ` (vs ${data.previous_year})` : "");
+  const compStr = `${data.company} — FY${data.year}` + (data.previous_year ? ` (vs FY${data.previous_year})` : "");
   headerTitleBadge.textContent = compStr;
-  headerQuestionBadge.textContent = `"${data.evidence.question}"`;
+  
+  const queryDisplay = data.interpreted_query || data.evidence.question || "Financial Analysis";
+  headerQuestionBadge.textContent = `"${queryDisplay}"`;
+  headerQuestionBadge.title = `Interpreted intent: ${queryDisplay}`;
 
   // 1. Dynamic Section & Tab Visibility
   const sectionsToShow = data.sections_to_show || ["hero", "supporting", "trends", "variances", "ai", "evidence"];
@@ -238,13 +269,14 @@ function renderReport(data) {
   renderAiReview(data.ai_review, data.ai_error);
   renderObservations(data.key_observations);
 
-  // 5. Evidence Block (Hidden inside collapsed disclosure by default)
+  // 5. Evidence Block (Collapsed by default)
   const evidenceDetails = document.getElementById("evidenceDetails");
-  if (evidenceDetails) evidenceDetails.open = false; // Ensure collapsed by default!
+  if (evidenceDetails) evidenceDetails.open = false;
   
   document.getElementById("evidenceBlock").textContent = JSON.stringify(data.evidence, null, 2);
+  const dataSourceLabel = data.data_source === "postgresql" ? "Supabase PostgreSQL Database" : "Financial Statements Dataset";
   document.getElementById("dataSourceInfo").textContent =
-    `Source: PostgreSQL Database (Supabase) · ${data.company} · Fiscal Year ${data.year}`;
+    `Source: ${dataSourceLabel} · ${data.company} · Fiscal Year ${data.year}` + (data.year_fallback_note ? ` (${data.year_fallback_note})` : "");
 }
 
 /* ---------------------------------------------------------------- METRIC CARDS HIERARCHY */
@@ -292,9 +324,14 @@ function renderStructuredMetricCards(data) {
       const card = document.createElement("div");
       card.className = "hero-card";
 
+      const changeHtml = m.percentChange !== null && m.percentChange !== undefined
+        ? `<div class="hero-change ${m.percentChange >= 0 ? 'pos' : 'neg'}">${m.percentChange >= 0 ? '▲ +' : '▼ '}${m.percentChange}% YoY</div>`
+        : "";
+
       card.innerHTML = `
         <div class="hero-label">${m.name}</div>
         <div class="hero-value">${formatMetricValue(m.key, m.value)}</div>
+        ${changeHtml}
       `;
       heroRow.appendChild(card);
     });
@@ -306,9 +343,16 @@ function renderStructuredMetricCards(data) {
       const card = document.createElement("div");
       card.className = "supporting-card";
 
+      const changeHtml = m.percentChange !== null && m.percentChange !== undefined
+        ? `<span class="supporting-change ${m.percentChange >= 0 ? 'pos' : 'neg'}">${m.percentChange >= 0 ? '+' : ''}${m.percentChange}%</span>`
+        : "";
+
       card.innerHTML = `
         <div class="supporting-label">${m.name}</div>
-        <div class="supporting-value">${formatMetricValue(m.key, m.value)}</div>
+        <div class="supporting-value-row">
+          <span class="supporting-value">${formatMetricValue(m.key, m.value)}</span>
+          ${changeHtml}
+        </div>
       `;
       supportingGrid.appendChild(card);
     });
@@ -332,9 +376,9 @@ function formatMetricValue(key, value) {
   // Format percentages/ratios
   if (keyLower.includes("margin") || keyLower.includes("roe") || keyLower.includes("roa") || keyLower.includes("roi")) {
     if (Math.abs(num) <= 1 && num !== 0) {
-      return (num * 100).toFixed(2);
+      return (num * 100).toFixed(2) + "%";
     }
-    return num.toFixed(2);
+    return num.toFixed(2) + "%";
   }
 
   if (keyLower.includes("current ratio") || keyLower.includes("debt equity") || keyLower.includes("ratio")) {
@@ -342,11 +386,11 @@ function formatMetricValue(key, value) {
   }
 
   if (keyLower.includes("eps") || keyLower.includes("per share")) {
-    return num.toFixed(2);
+    return "$" + num.toFixed(2);
   }
 
   if (Math.abs(num) >= 1000) {
-    return num.toLocaleString(undefined, { maximumFractionDigits: 2 });
+    return "$" + num.toLocaleString(undefined, { maximumFractionDigits: 2 });
   }
 
   return num.toLocaleString(undefined, { maximumFractionDigits: 2 });
@@ -545,6 +589,122 @@ function lightChartOptions() {
   };
 }
 
+/* ---------------------------------------------------------------- MARKDOWN PARSER FOR AI REVIEW */
+
+function parseMarkdownToHtml(markdown) {
+  if (!markdown) return "";
+  
+  let lines = markdown.split("\n");
+  let html = [];
+  let inTable = false;
+  let tableHeaderParsed = false;
+  let inList = false;
+
+  for (let i = 0; i < lines.length; i++) {
+    let line = lines[i].trim();
+
+    // Table detection
+    if (line.startsWith("|") && line.endsWith("|")) {
+      // Separator row e.g. |---|---|
+      if (/^\|[-:\s|]+\|$/.test(line)) {
+        tableHeaderParsed = true;
+        continue;
+      }
+
+      const cells = line.slice(1, -1).split("|").map((c) => c.trim());
+      if (!inTable) {
+        if (inList) { html.push("</ul>"); inList = false; }
+        html.push('<div class="ai-table-wrapper"><table class="ai-markdown-table">');
+        inTable = true;
+        tableHeaderParsed = false;
+      }
+
+      if (!tableHeaderParsed) {
+        html.push("<thead><tr>");
+        cells.forEach((c) => html.push(`<th>${formatInlineMarkdown(c)}</th>`));
+        html.push("</tr></thead><tbody>");
+      } else {
+        html.push("<tr>");
+        cells.forEach((c) => html.push(`<td>${formatInlineMarkdown(c)}</td>`));
+        html.push("</tr>");
+      }
+      continue;
+    } else {
+      if (inTable) {
+        html.push("</tbody></table></div>");
+        inTable = false;
+        tableHeaderParsed = false;
+      }
+    }
+
+    // Horizontal Rule
+    if (/^(\*\*\*|---|___)$/.test(line)) {
+      if (inList) { html.push("</ul>"); inList = false; }
+      html.push('<hr class="ai-hr" />');
+      continue;
+    }
+
+    // Headings
+    if (line.startsWith("### ")) {
+      if (inList) { html.push("</ul>"); inList = false; }
+      html.push(`<h4>${formatInlineMarkdown(line.slice(4))}</h4>`);
+      continue;
+    }
+    if (line.startsWith("## ")) {
+      if (inList) { html.push("</ul>"); inList = false; }
+      html.push(`<h3>${formatInlineMarkdown(line.slice(3))}</h3>`);
+      continue;
+    }
+    if (line.startsWith("# ")) {
+      if (inList) { html.push("</ul>"); inList = false; }
+      html.push(`<h2>${formatInlineMarkdown(line.slice(2))}</h2>`);
+      continue;
+    }
+
+    // Bullet Lists
+    if (line.startsWith("- ") || line.startsWith("* ")) {
+      if (!inList) {
+        html.push('<ul class="ai-bullet-list">');
+        inList = true;
+      }
+      html.push(`<li>${formatInlineMarkdown(line.slice(2))}</li>`);
+      continue;
+    } else {
+      if (inList) {
+        html.push("</ul>");
+        inList = false;
+      }
+    }
+
+    // Empty lines
+    if (!line) {
+      continue;
+    }
+
+    // Regular paragraphs
+    html.push(`<p>${formatInlineMarkdown(line)}</p>`);
+  }
+
+  if (inTable) html.push("</tbody></table></div>");
+  if (inList) html.push("</ul>");
+
+  return html.join("\n");
+}
+
+function formatInlineMarkdown(text) {
+  if (!text) return "";
+  let s = text;
+  // Bold **text** or __text__
+  s = s.replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>");
+  s = s.replace(/__(.*?)__/g, "<strong>$1</strong>");
+  // Italic *text* or _text_
+  s = s.replace(/\*(.*?)\*/g, "<em>$1</em>");
+  s = s.replace(/_(.*?)_/g, "<em>$1</em>");
+  // Code `text`
+  s = s.replace(/`([^`]+)`/g, "<code>$1</code>");
+  return s;
+}
+
 /* ---------------------------------------------------------------- VARIANCES & AI REVIEW */
 
 function renderVariances(variances) {
@@ -569,10 +729,10 @@ function renderVariances(variances) {
 function renderAiReview(review, error) {
   const body = document.getElementById("aiReviewBody");
   if (review) {
-    body.textContent = review;
+    body.innerHTML = parseMarkdownToHtml(review);
     body.classList.remove("error");
   } else {
-    body.textContent = `AI narrative is temporarily unavailable (${error || "unknown error"}). Calculated values and charts remain accurate.`;
+    body.innerHTML = `<p class="error-msg">AI narrative is temporarily unavailable (${error || "unknown error"}). Calculated values and charts remain accurate.</p>`;
     body.classList.add("error");
   }
 }

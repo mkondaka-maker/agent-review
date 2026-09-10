@@ -227,12 +227,13 @@ def extract_query_with_groq(
     )
 
     candidate_models = [
-        os.environ.get("GROQ_MODEL", "qwen/qwen3.6-27b"),
-        "qwen/qwen3.6-27b",
-        "openai/gpt-oss-120b",
+        os.environ.get("GROQ_MODEL", "llama-3.3-70b-versatile"),
+        "llama-3.3-70b-versatile",
+        "llama-3.1-70b-versatile",
+        "llama3-70b-8192",
         "groq/compound-mini",
+        "qwen/qwen3.6-27b",
         "openai/gpt-oss-20b",
-        "qwen/qwen3.8-27b",
         "allam-2-7b",
     ]
     candidate_models = list(dict.fromkeys([m for m in candidate_models if m]))
@@ -482,13 +483,13 @@ def generate_financial_review(evidence: dict, user_question: str = None) -> str:
         dynamic_models = _fetch_groq_models(groq_key)
         
         preferred_models = [
-            "qwen/qwen3.6-27b",
-            "openai/gpt-oss-120b",
-            "groq/compound-mini",
-            "openai/gpt-oss-20b",
-            "qwen/qwen3.8-27b",
-            "groq/compound",
             "llama-3.3-70b-versatile",
+            "llama-3.1-70b-versatile",
+            "llama3-70b-8192",
+            "groq/compound-mini",
+            "qwen/qwen3.6-27b",
+            "openai/gpt-oss-20b",
+            "groq/compound",
             "allam-2-7b",
         ]
 

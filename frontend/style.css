@@ -633,12 +633,125 @@ select:disabled {
   font-size: 14.5px;
   line-height: 1.75;
   color: #2C3E50;
-  white-space: pre-wrap;
 }
 
-.ai-review-body h3, .ai-review-body strong {
+.ai-review-body h2 {
+  font-family: var(--font-serif);
+  font-size: 20px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-top: 22px;
+  margin-bottom: 10px;
+}
+
+.ai-review-body h3 {
+  font-family: var(--font-serif);
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-top: 18px;
+  margin-bottom: 8px;
+}
+
+.ai-review-body h4 {
+  font-family: var(--font-sans);
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-main);
+  margin-top: 14px;
+  margin-bottom: 6px;
+}
+
+.ai-review-body p {
+  margin-bottom: 12px;
+}
+
+.ai-review-body strong {
   color: var(--text-main);
   font-weight: 700;
+}
+
+.ai-hr {
+  border: 0;
+  border-top: 1px solid var(--border-color);
+  margin: 20px 0;
+}
+
+.ai-bullet-list {
+  margin: 10px 0 16px 20px;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ai-bullet-list li {
+  line-height: 1.6;
+}
+
+/* AI Markdown Tables */
+.ai-table-wrapper {
+  overflow-x: auto;
+  margin: 16px 0 20px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-color);
+}
+
+.ai-markdown-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13.5px;
+  text-align: left;
+  background-color: var(--bg-card);
+}
+
+.ai-markdown-table th {
+  background-color: #F7F5F0;
+  color: var(--text-main);
+  font-weight: 600;
+  padding: 10px 14px;
+  border-bottom: 1.5px solid var(--border-dark);
+}
+
+.ai-markdown-table td {
+  padding: 9px 14px;
+  border-bottom: 1px solid var(--border-color);
+  color: var(--text-main);
+}
+
+.ai-markdown-table tr:last-child td {
+  border-bottom: none;
+}
+
+.ai-markdown-table tr:hover td {
+  background-color: var(--bg-subtle);
+}
+
+.hero-change {
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-block;
+}
+
+.hero-change.pos, .supporting-change.pos {
+  color: var(--color-green);
+}
+
+.hero-change.neg, .supporting-change.neg {
+  color: var(--color-down);
+}
+
+.supporting-value-row {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.supporting-change {
+  font-size: 12px;
+  font-weight: 600;
 }
 
 .ai-review-body.error {
