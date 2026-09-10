@@ -267,3 +267,148 @@ def get_years_in_range(company: str, start_year: int, end_year: int) -> pd.DataF
         & (df["Year"] <= int(end_year))
     ].sort_values("Year")
     return subset
+
+
+def get_latest_year(company: str = None) -> int:
+    """Return the most recent available year for a company (or dataset)."""
+    df = load_dataset()
+    if company:
+        subset = df[df["Company"] == company]
+        if not subset.empty and subset["Year"].dropna().any():
+            return int(subset["Year"].dropna().max())
+    if not df.empty and df["Year"].dropna().any():
+        return int(df["Year"].dropna().max())
+    return 2024
+
+
+def find_canonical_company(query_name: str, df: pd.DataFrame = None) -> str:
+    """Resolve a company name / ticker / alias against active database companies."""
+    if not query_name:
+        return None
+    if df is None:
+        df = load_dataset()
+    
+    companies = get_companies()
+    q = str(query_name).strip().lower()
+
+    # 1. Exact match (case-insensitive)
+    for c in companies:
+        if c.lower() == q:
+            return c
+
+    # 2. Ticker match
+    for ticker, name in TICKER_TO_NAME.items():
+        if ticker.lower() == q:
+            if name in companies:
+                return name
+            return name
+
+    # 3. Substring match
+    for c in companies:
+        if c.lower() in q or q in c.lower():
+            return c
+
+    # 4. Fuzzy match
+    import difflib
+    matches = difflib.get_close_matches(query_name, companies, n=1, cutoff=0.6)
+    if matches:
+        return matches[0]
+
+    return None
+
+
+def search_financial_database(
+    company: str,
+    year: int = None,
+    comparison_year: int = None,
+    comparison_company: str = None,
+) -> dict:
+    """
+    Rich query interface for PostgreSQL (Supabase) financial statements.
+    Retrieves primary record, comparison record, multi-year history, and optional cross-company data.
+    """
+    df = load_dataset()
+    available_companies = get_companies()
+
+    # 1. Resolve Primary Company
+    resolved_company = find_canonical_company(company, df) or company
+    if resolved_company not in available_companies and available_companies:
+        # Fallback to closest or first available
+        import difflib
+        matches = difflib.get_close_matches(str(company), available_companies, n=1, cutoff=0.4)
+        resolved_company = matches[0] if matches else available_companies[0]
+
+    company_years = get_years(resolved_company)
+    if not company_years:
+        raise ValueError(f"No records found in database for company: {resolved_company}")
+
+    # 2. Resolve Target Year
+    requested_year = year
+    actual_year = year
+    year_fallback_note = None
+
+    if actual_year is None or actual_year not in company_years:
+        if actual_year is not None:
+            # Find closest available year in database
+            closest_year = min(company_years, key=lambda y: abs(y - actual_year))
+            year_fallback_note = f"Requested FY{actual_year} not in database; using closest available FY{closest_year}."
+            actual_year = closest_year
+        else:
+            actual_year = max(company_years)
+
+    actual_year = int(actual_year)
+    current_record = get_year_data(resolved_company, actual_year)
+
+    # 3. Resolve Comparison Year
+    actual_prev_year = None
+    if comparison_year is not None:
+        if int(comparison_year) in company_years:
+            actual_prev_year = int(comparison_year)
+        else:
+            # Pick closest year before target year
+            candidates = [y for y in company_years if y < actual_year]
+            if candidates:
+                actual_prev_year = max(candidates)
+    else:
+        # Default previous available year
+        candidates = [y for y in company_years if y < actual_year]
+        if candidates:
+            actual_prev_year = max(candidates)
+
+    previous_record = get_year_data(resolved_company, actual_prev_year) if actual_prev_year else None
+
+    # 4. Multi-year history (all available years for this company)
+    company_history_df = get_company_data(resolved_company)
+    company_history = company_history_df.to_dict("records")
+
+    # 5. Optional Comparison Company Search
+    comp_company_data = None
+    if comparison_company:
+        resolved_comp_company = find_canonical_company(comparison_company, df)
+        if resolved_comp_company and resolved_comp_company != resolved_company:
+            comp_years = get_years(resolved_comp_company)
+            comp_target_year = actual_year if actual_year in comp_years else (max(comp_years) if comp_years else None)
+            if comp_target_year:
+                comp_record = get_year_data(resolved_comp_company, comp_target_year)
+                comp_company_data = {
+                    "company": resolved_comp_company,
+                    "year": comp_target_year,
+                    "record": comp_record,
+                    "available_years": comp_years,
+                }
+
+    return {
+        "primary_company": resolved_company,
+        "target_year": actual_year,
+        "requested_year": requested_year,
+        "previous_year": actual_prev_year,
+        "year_fallback_note": year_fallback_note,
+        "current_record": current_record,
+        "previous_record": previous_record,
+        "available_years": company_years,
+        "history": company_history,
+        "comparison_company_data": comp_company_data,
+        "data_source": get_data_source(),
+    }
+
+

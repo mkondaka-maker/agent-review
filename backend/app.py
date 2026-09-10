@@ -6,9 +6,13 @@ generates trend/comparison charts, and produces Gemini AI reviews.
 """
 
 import os
+import sys
 from flask import Flask, jsonify, render_template, request, send_from_directory
 from flask_cors import CORS
 from dotenv import load_dotenv
+
+# Ensure backend directory is in sys.path
+sys.path.insert(0, os.path.dirname(__file__))
 
 import data_loader
 import financial_analysis as fa
@@ -180,34 +184,67 @@ INTENT_SECTION_MAP = {
 @app.route("/api/analyze", methods=["POST"])
 def api_analyze():
     payload = request.get_json(silent=True) or {}
-    company = payload.get("company")
-    year = payload.get("year")
-    question = payload.get("question", "")
-
-    if not company:
-        return jsonify({"error": "No company selected. Please select a company."}), 400
-    if not year:
-        return jsonify({"error": "No year selected. Please select a year."}), 400
-    if not question or not question.strip():
-        return jsonify({"error": "Please enter a financial question."}), 400
+    raw_question = (payload.get("question") or "").strip()
+    req_company = payload.get("company")
+    req_year = payload.get("year")
 
     try:
-        year = int(year)
         df = data_loader.load_dataset()
-        metric_columns = data_loader.get_available_metric_columns(df)
+        available_companies = data_loader.get_companies()
 
-        current_record = data_loader.get_year_data(company, year)
+        # 1. Groq-powered / heuristic intelligent query analysis
+        parsed = agent.parse_user_query(
+            question=raw_question,
+            available_companies=available_companies,
+            default_company=req_company,
+            default_year=int(req_year) if req_year else None,
+        )
+
+        company = parsed.get("company")
+        if company in ("None", "null", ""):
+            company = None
+        comparison_company = parsed.get("comparison_company")
+        if comparison_company in ("None", "null", ""):
+            comparison_company = None
+        year = parsed.get("year")
+        custom_prev_year = parsed.get("previous_year")
+        intent = parsed.get("intent") or "complete"
+        target_metrics = parsed.get("target_metrics") or []
+        interpreted_query = parsed.get("interpreted_query") or raw_question
+
+        # Smart fallback if company was not identified from query or dropdown
+        if not company:
+            if available_companies:
+                return jsonify({
+                    "error": f"Could not identify a company from your query. Available companies in database: {', '.join(available_companies)}."
+                }), 400
+            else:
+                return jsonify({"error": "No database records or companies available."}), 400
+
+        # 2. Search Supabase PostgreSQL Database
+        search_res = data_loader.search_financial_database(
+            company=company,
+            year=int(year) if year else None,
+            comparison_year=int(custom_prev_year) if custom_prev_year else None,
+            comparison_company=comparison_company,
+        )
+
+        resolved_company = search_res["primary_company"]
+        actual_year = search_res["target_year"]
+        actual_prev_year = search_res["previous_year"]
+        current_record = search_res["current_record"]
+        previous_record = search_res["previous_record"]
+        year_fallback_note = search_res["year_fallback_note"]
+        comp_company_data = search_res["comparison_company_data"]
+
         if current_record is None:
-            return jsonify({"error": f"No data found for {company} in {year}."}), 404
+            return jsonify({"error": f"No data found for {resolved_company} in database."}), 404
 
-        previous_record = data_loader.get_previous_year_data(company, year)
-        previous_year = int(previous_record["Year"]) if previous_record is not None else None
-
-        # 1. Detect Intent
-        intent = agent.detect_intent(question)
+        question = raw_question or f"Give me a complete financial review for {resolved_company} in {actual_year}."
+        metric_columns = data_loader.get_available_metric_columns(df)
         intent_config = INTENT_SECTION_MAP.get(intent, INTENT_SECTION_MAP["complete"])
 
-        # 2. Core calculations
+        # 3. Core Python Mathematical Calculations
         comparison = {}
         if previous_record is not None:
             comparison = fa.compare_years(current_record, previous_record, metric_columns)
@@ -215,15 +252,36 @@ def api_analyze():
         margins_previous = fa.compute_margins(previous_record) if previous_record else {}
         all_kpi_cards = fa.build_kpi_cards(current_record, metric_columns)
 
-        # 3. Validation / variance detection
+        # Cross-company calculations if comparison company is present
+        comp_company_summary = None
+        if comp_company_data and comp_company_data.get("record"):
+            comp_rec = comp_company_data["record"]
+            comp_margins = fa.compute_margins(comp_rec)
+            comp_company_summary = {
+                "company": comp_company_data["company"],
+                "year": comp_company_data["year"],
+                "record": _clean_record(comp_rec),
+                "margins": comp_margins,
+                "kpi_cards": fa.build_kpi_cards(comp_rec, metric_columns),
+            }
+
+        # 4. Validation / variance detection
         missing = val.detect_missing_values(current_record, metric_columns)
         duplicates = val.detect_duplicate_records(df)
         variances = val.detect_variances(comparison) if comparison else []
         ranked = val.rank_variances(comparison) if comparison else {"top_increases": [], "top_decreases": []}
         anomalies = val.detect_anomalies(comparison) if comparison else []
 
-        # 4. Filter KPI Cards based on intent
-        if intent_config["kpis"] is None:
+        # 5. Filter & Prioritize KPI Cards
+        if target_metrics:
+            target_lower = [t.lower() for t in target_metrics]
+            prioritized_cards = [
+                card for card in all_kpi_cards
+                if any(t in card["metric"].lower() or card["metric"].lower() in t for t in target_lower)
+            ]
+            remaining_cards = [card for card in all_kpi_cards if card not in prioritized_cards]
+            kpi_cards = prioritized_cards + remaining_cards
+        elif intent_config["kpis"] is None:
             kpi_cards = all_kpi_cards
         else:
             target_kpis_lower = [k.lower() for k in intent_config["kpis"]]
@@ -232,20 +290,20 @@ def api_analyze():
                 if any(t in card["metric"].lower() or card["metric"].lower() in t for t in target_kpis_lower)
             ]
 
-        # 5. Build Charts conditionally based on intent
-        company_df = data_loader.get_company_data(company)
+        # 6. Build Charts conditionally
+        company_df = data_loader.get_company_data(resolved_company)
         allowed_charts = intent_config["charts"]
 
         charts = {}
         
         # Revenue trend
-        if allowed_charts is None or "revenue_trend" in allowed_charts:
+        if allowed_charts is None or "revenue_trend" in allowed_charts or "revenue" in question.lower() or "sales" in question.lower():
             charts["revenue_trend"] = cg.generate_trend_chart_data(company_df, "Revenue")
         else:
             charts["revenue_trend"] = {"available": False}
 
         # Net income trend
-        if allowed_charts is None or "net_income_trend" in allowed_charts:
+        if allowed_charts is None or "net_income_trend" in allowed_charts or "income" in question.lower() or "profit" in question.lower():
             charts["net_income_trend"] = cg.generate_trend_chart_data(company_df, "Net Income")
         else:
             charts["net_income_trend"] = {"available": False}
@@ -256,8 +314,8 @@ def api_analyze():
                 "Revenue",
                 comparison.get("Revenue", {}).get("current"),
                 comparison.get("Revenue", {}).get("previous"),
-                year,
-                previous_year,
+                actual_year,
+                actual_prev_year,
             ) if comparison else {"available": False}
         else:
             charts["current_vs_previous_revenue"] = {"available": False}
@@ -275,81 +333,51 @@ def api_analyze():
             charts["yoy_percent_change"] = {}
 
         # Profitability
-        if allowed_charts is None or "profitability" in allowed_charts:
+        if allowed_charts is None or "profitability" in allowed_charts or "margin" in question.lower():
             charts["profitability"] = cg.generate_profitability_chart(company_df)
         else:
             charts["profitability"] = {"available": False}
 
-        # 6. Assemble scoped evidence package for AI (and response evidence block)
+        # 7. Assemble scoped evidence package for AI
         full_evidence = {
-            "company": company,
-            "year": year,
-            "previous_year": previous_year,
+            "company": resolved_company,
+            "year": actual_year,
+            "previous_year": actual_prev_year,
             "question": question,
             "intent": intent,
+            "interpreted_query": interpreted_query,
+            "target_metrics_requested": target_metrics,
+            "year_fallback_note": year_fallback_note,
             "current_year_values": _clean_record(current_record),
             "previous_year_values": _clean_record(previous_record) if previous_record else None,
             "comparison": comparison,
             "margins_current_year": margins_current,
             "margins_previous_year": margins_previous,
+            "comparison_company_data": comp_company_summary,
             "variances": variances,
             "ranked_variances": ranked,
             "anomalies": anomalies,
             "missing_metrics": missing,
         }
 
-        if intent == "complete" or intent_config["kpis"] is None:
-            scoped_evidence = full_evidence
-        else:
-            target_kpis_lower = [k.lower() for k in intent_config["kpis"]]
-            
-            # Filter current and previous values
-            scoped_current = {
-                k: v for k, v in _clean_record(current_record).items()
-                if k in ["Year", "Company", "Ticker"] or any(t in k.lower() or k.lower() in t for t in target_kpis_lower)
-            }
-            scoped_previous = (
-                {
-                    k: v for k, v in _clean_record(previous_record).items()
-                    if k in ["Year", "Company", "Ticker"] or any(t in k.lower() or k.lower() in t for t in target_kpis_lower)
-                }
-                if previous_record else None
-            )
-            scoped_comp = {
-                k: v for k, v in comparison.items()
-                if any(t in k.lower() or k.lower() in t for t in target_kpis_lower)
-            }
-            
-            scoped_evidence = {
-                "company": company,
-                "year": year,
-                "previous_year": previous_year,
-                "question": question,
-                "intent": intent,
-                "current_year_values": scoped_current,
-                "previous_year_values": scoped_previous,
-                "comparison": scoped_comp,
-                "margins_current_year": margins_current if intent == "profitability" else {},
-                "margins_previous_year": margins_previous if intent == "profitability" else {},
-                "variances": variances if intent == "variances" else [],
-            }
-
-        # 7. AI interpretation using scoped evidence
         ai_review = None
         ai_error = None
         try:
-            ai_review = agent.generate_financial_review(scoped_evidence)
+            ai_review = agent.generate_financial_review(full_evidence, user_question=question)
         except Exception as e:
             ai_error = str(e)
 
-        key_observations = agent.generate_key_observations(scoped_evidence)
+        key_observations = agent.generate_key_observations(full_evidence)
 
-        # Return payload with sections_to_show
         return jsonify({
-            "company": company,
-            "year": year,
-            "previous_year": previous_year,
+            "company": resolved_company,
+            "comparison_company": comparison_company,
+            "comparison_company_data": comp_company_summary,
+            "year": actual_year,
+            "previous_year": actual_prev_year,
+            "year_fallback_note": year_fallback_note,
             "intent": intent,
+            "interpreted_query": interpreted_query,
             "sections_to_show": intent_config["sections"],
             "kpi_cards": kpi_cards,
             "comparison": comparison,
@@ -365,7 +393,8 @@ def api_analyze():
             "ai_review": ai_review,
             "ai_error": ai_error,
             "key_observations": key_observations,
-            "evidence": scoped_evidence,
+            "evidence": full_evidence,
+            "data_source": data_loader.get_data_source(),
         })
 
     except Exception as e:
@@ -393,3 +422,4 @@ def _clean_record(record: dict) -> dict:
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port, debug=True)
+
